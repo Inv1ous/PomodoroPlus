@@ -8,7 +8,7 @@ A full-featured macOS Pomodoro timer app designed for personal productivity. Fea
 
 **Break Overlay**: When a break begins, a full-screen overlay covers all connected monitors to encourage proper rest. The overlay operates in strict mode by default, preventing you from skipping breaks. Optional delayed-skip allows ending breaks after a configurable waiting period.
 
-**Sound Notifications**: Per-event sound selection for work completion, break completion, and warning reminders. Supports importing custom MP3, M4A, and WAV audio files. All sounds play in-app with configurable duration and a stop button.
+**Sound Notifications**: Per-event sound selection for work completion, break completion, and warning reminders. Supports importing custom MP3, M4A, and WAV audio files. All sounds play in-app with configurable loop duration and a stop button.
 
 **System Notifications**: Banner notifications appear 1 minute before phase completion (configurable) and when phases end. Sound playback is handled separately from notifications to ensure consistent behavior.
 
