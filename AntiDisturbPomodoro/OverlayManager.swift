@@ -36,6 +36,13 @@ class OverlayManager: NSObject, ObservableObject {
             }
             .store(in: &cancellables)
     }
+
+    deinit {
+        cancellables.removeAll()
+        DispatchQueue.main.async { [weak self] in
+            self?.hideOverlay()
+        }
+    }
     
     // MARK: - Show/Hide Overlay
     

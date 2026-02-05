@@ -40,6 +40,18 @@ class StatusBarController: NSObject {
         setupEventMonitor()
         observeTimerUpdates()
     }
+
+    deinit {
+        if let eventMonitor {
+            NSEvent.removeMonitor(eventMonitor)
+            self.eventMonitor = nil
+        }
+        cancellables.removeAll()
+
+        if let statusItem {
+            NSStatusBar.system.removeStatusItem(statusItem)
+        }
+    }
     
     // MARK: - Setup
     
@@ -75,8 +87,11 @@ class StatusBarController: NSObject {
     private func setupEventMonitor() {
         // Close popover when clicking outside
         eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            if self?.popover.isShown == true {
-                self?.closePopover()
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if self.popover.isShown {
+                    self.closePopover()
+                }
             }
         }
     }

@@ -23,7 +23,11 @@ class AlarmPlayer: NSObject, ObservableObject {
     /// Values > 1.0 are achieved via gain boosting in AVAudioEngine.
     @Published var volume: Double = 1.0 {
         didSet {
-            applyVolume()
+            // Ensure audio graph updates happen on the same serial queue as the engine.
+            let scalar = volume
+            playbackQueue.async { [weak self] in
+                self?.applyVolume(scalar: scalar)
+            }
         }
     }
     
@@ -45,14 +49,38 @@ class AlarmPlayer: NSObject, ObservableObject {
     
     // MARK: - Thread safety
     private let playbackQueue = DispatchQueue(label: "com.antidisturbpomodoro.alarmplayer", qos: .userInteractive)
+    private let playbackQueueKey = DispatchSpecificKey<Void>()
     
     init(soundLibrary: SoundLibrary) {
         self.soundLibrary = soundLibrary
         super.init()
+
+        playbackQueue.setSpecific(key: playbackQueueKey, value: ())
     }
     
     deinit {
-        cleanupEngine()
+        // Best-effort cleanup.
+        let invalidateTimers = { [weak self] in
+            self?.stopTimer?.invalidate()
+            self?.stopTimer = nil
+            self?.systemSoundTimer?.invalidate()
+            self?.systemSoundTimer = nil
+        }
+
+        if Thread.isMainThread {
+            invalidateTimers()
+        } else {
+            DispatchQueue.main.sync(execute: invalidateTimers)
+        }
+
+        // Stop engine on the playback queue (avoid deadlocks if we're already on that queue).
+        if DispatchQueue.getSpecific(key: playbackQueueKey) != nil {
+            stopInternal()
+        } else {
+            playbackQueue.sync { [weak self] in
+                self?.stopInternal()
+            }
+        }
     }
     
     // MARK: - Playback Control
@@ -73,7 +101,10 @@ class AlarmPlayer: NSObject, ObservableObject {
             return
         }
         
-        self.volume = config.volume
+        // Publish volume changes on the main thread to avoid SwiftUI background publish warnings.
+        DispatchQueue.main.async { [weak self] in
+            self?.volume = config.volume
+        }
         self.currentConfig = config
         self.playStartTime = Date()
         self.loopsCompleted = 0
@@ -154,8 +185,10 @@ class AlarmPlayer: NSObject, ObservableObject {
         
         DispatchQueue.main.async { [weak self] in
             self?.isPlaying = false
-            self?.isStopping = false
         }
+
+        // Back on playback queue
+        isStopping = false
     }
     
     private func cleanupEngine() {
@@ -204,7 +237,7 @@ class AlarmPlayer: NSObject, ObservableObject {
             mixerNode = mixer
             
             // Apply volume (including boost)
-            applyVolume()
+            applyVolume(scalar: config.volume)
             
             // Start engine
             try engine.start()
@@ -303,14 +336,16 @@ class AlarmPlayer: NSObject, ObservableObject {
     }
     
     private func applyVolume() {
+        applyVolume(scalar: volume)
+    }
+
+    private func applyVolume(scalar: Double) {
         guard let mixer = mixerNode else { return }
-        
+
         // Clamp volume to valid range
-        let clampedVolume = max(0.0, min(2.0, volume))
-        
-        // AVAudioMixerNode's outputVolume can exceed 1.0 for gain boosting
-        // The mixer node allows values from 0.0 to a very high number
-        // We use the full range 0-2 directly
+        let clampedVolume = max(0.0, min(2.0, scalar))
+
+        // AVAudioMixerNode's outputVolume can exceed 1.0 for gain boosting.
         mixer.outputVolume = Float(clampedVolume)
     }
     
@@ -320,7 +355,9 @@ class AlarmPlayer: NSObject, ObservableObject {
     private var systemSoundLoopsCompleted: Int = 0
     
     private func playSystemSound(config: AlarmPlaybackConfig) {
-        isPlaying = true
+        DispatchQueue.main.async { [weak self] in
+            self?.isPlaying = true
+        }
         systemSoundLoopsCompleted = 0
         
         // Play system alert sound immediately
@@ -370,7 +407,9 @@ class AlarmPlayer: NSObject, ObservableObject {
         stopTimer?.invalidate()
         stopTimer = nil
         systemSoundLoopsCompleted = 0
-        isPlaying = false
+        DispatchQueue.main.async { [weak self] in
+            self?.isPlaying = false
+        }
     }
     
     // MARK: - Test Playback

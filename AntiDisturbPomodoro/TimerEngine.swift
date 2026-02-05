@@ -44,6 +44,10 @@ class TimerEngine: ObservableObject {
     
     private var timer: Timer?
     private var cancellables = Set<AnyCancellable>()
+
+    /// Reduce UI churn/CPU by publishing countdown changes only when the displayed second changes.
+    private var lastPublishedRemainingSecond: Int = Int.max
+    private var lastPublishedExtraTimeSecond: Int = Int.max
     
     // MARK: - Dependencies
     
@@ -69,6 +73,7 @@ class TimerEngine: ObservableObject {
     private func setupObservers() {
         // Listen for wake from sleep
         NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.handleWakeFromSleep()
             }
@@ -329,12 +334,13 @@ class TimerEngine: ObservableObject {
     
     private func startTicking() {
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+        // Use a non-scheduled timer and add it once to the common run loop modes.
+        // (Avoids the same timer being registered in multiple modes via scheduledTimer + add.)
+        let t = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
             self?.tick()
         }
-        if let timer = timer {
-            RunLoop.main.add(timer, forMode: .common)
-        }
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
     }
     
     private func stopTicking() {
@@ -346,9 +352,14 @@ class TimerEngine: ObservableObject {
         // Handle extra time tick
         if isInExtraTime {
             guard let endDate = extraTimeEndDate else { return }
-            extraTimeRemaining = max(0, endDate.timeIntervalSinceNow)
-            
-            if extraTimeRemaining <= 0 {
+            let newRemaining = max(0, endDate.timeIntervalSinceNow)
+            let displaySecond = Int(ceil(newRemaining))
+            if displaySecond != lastPublishedExtraTimeSecond || newRemaining <= 0 {
+                extraTimeRemaining = newRemaining
+                lastPublishedExtraTimeSecond = displaySecond
+            }
+
+            if newRemaining <= 0 {
                 finishExtraTime()
             }
             return
@@ -356,7 +367,12 @@ class TimerEngine: ObservableObject {
         
         guard state == .running, let endDate = phaseEndDate else { return }
         
-        remainingSeconds = max(0, endDate.timeIntervalSinceNow)
+        let newRemaining = max(0, endDate.timeIntervalSinceNow)
+        let displaySecond = Int(ceil(newRemaining))
+        if displaySecond != lastPublishedRemainingSecond || newRemaining <= 0 {
+            remainingSeconds = newRemaining
+            lastPublishedRemainingSecond = displaySecond
+        }
         
         // Check for warning (tick-based backup - scheduled notification is primary)
         // Only fire if we haven't already fired a warning this phase
@@ -365,15 +381,15 @@ class TimerEngine: ObservableObject {
             let warningSeconds = TimeInterval(warningSecondsInt)
             
             // Fire warning when we cross the threshold and haven't fired yet
-            if remainingSeconds <= warningSeconds && !warningFired && remainingSeconds > 0 {
+            if newRemaining <= warningSeconds && !warningFired && newRemaining > 0 {
                 warningFired = true
-                warningFiredAtRemaining = remainingSeconds
+                warningFiredAtRemaining = newRemaining
                 fireWarning()
             }
         }
         
         // Check for phase end
-        if remainingSeconds <= 0 {
+        if newRemaining <= 0 {
             phaseEnded()
         }
     }
@@ -588,6 +604,7 @@ class TimerEngine: ObservableObject {
                 finishExtraTime()
             } else {
                 extraTimeRemaining = remaining
+                lastPublishedExtraTimeSecond = Int(ceil(remaining))
             }
             return
         }
@@ -599,9 +616,11 @@ class TimerEngine: ObservableObject {
         if remaining <= 0 {
             // Phase ended while sleeping
             remainingSeconds = 0
+            lastPublishedRemainingSecond = 0
             phaseEnded()
         } else {
             remainingSeconds = remaining
+            lastPublishedRemainingSecond = Int(ceil(remaining))
             
             // Check if warning should have fired while sleeping
             if let profile = profileStore.currentProfile {
@@ -638,14 +657,16 @@ class TimerEngine: ObservableObject {
     
     var formattedRemaining: String {
         let seconds = isInExtraTime ? extraTimeRemaining : remainingSeconds
-        let minutes = Int(seconds) / 60
-        let secs = Int(seconds) % 60
+        let display = max(0, Int(ceil(seconds)))
+        let minutes = display / 60
+        let secs = display % 60
         return String(format: "%02d:%02d", minutes, secs)
     }
     
     var formattedExtraTimeRemaining: String {
-        let minutes = Int(extraTimeRemaining) / 60
-        let seconds = Int(extraTimeRemaining) % 60
+        let display = max(0, Int(ceil(extraTimeRemaining)))
+        let minutes = display / 60
+        let seconds = display % 60
         return String(format: "%02d:%02d", minutes, seconds)
     }
 }
