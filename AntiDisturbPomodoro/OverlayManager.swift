@@ -19,24 +19,19 @@ class OverlayManager: NSObject, ObservableObject {
     
     private var skipTimer: Timer?
     
-    // MARK: - Screen Tracking (Optimization)
-    private var windowScreens: Set<ObjectIdentifier> = []
-    
     init(timerEngine: TimerEngine, alarmPlayer: AlarmPlayer, profileStore: ProfileStore) {
         self.timerEngine = timerEngine
         self.alarmPlayer = alarmPlayer
         self.profileStore = profileStore
         super.init()
         
+        // Observe hold after break
         timerEngine.$isHoldingAfterBreak
             .receive(on: DispatchQueue.main)
             .sink { [weak self] isHolding in
-                guard let self = self else { return }
-                let wasHolding = self.isShowingPostBreakHold
-                self.isShowingPostBreakHold = isHolding
-                
-                if isHolding != wasHolding && !self.overlayWindows.isEmpty {
-                    self.refreshOverlayContent()
+                self?.isShowingPostBreakHold = isHolding
+                if isHolding {
+                    self?.refreshOverlayContent()
                 }
             }
             .store(in: &cancellables)
@@ -45,27 +40,30 @@ class OverlayManager: NSObject, ObservableObject {
     // MARK: - Show/Hide Overlay
     
     func showOverlay() {
+        // Close any existing overlays
         hideOverlay()
         
         guard let profile = profileStore?.currentProfile else { return }
         
+        // Reset skip state
         skipEnabled = false
         skipCountdown = 0
         isShowingPostBreakHold = false
-        windowScreens.removeAll()
         
+        // Create overlay for each screen
         for screen in NSScreen.screens {
             let window = createOverlayWindow(for: screen)
             overlayWindows.append(window)
-            windowScreens.insert(ObjectIdentifier(screen))
             window.orderFrontRegardless()
         }
         
+        // Handle delayed skip if enabled
         if profile.overlay.delayedSkipEnabled && !profile.overlay.strictDefault {
             let delaySeconds = profile.overlay.delayedSkipSeconds
             skipCountdown = delaySeconds
             startSkipCountdown()
         } else if !profile.overlay.strictDefault {
+            // Not strict mode and no delay - enable skip immediately
             skipEnabled = true
         }
     }
@@ -79,42 +77,21 @@ class OverlayManager: NSObject, ObservableObject {
             window.close()
         }
         overlayWindows.removeAll()
-        windowScreens.removeAll()
         isShowingPostBreakHold = false
     }
     
-    // MARK: - Optimized Content Refresh
-    
     private func refreshOverlayContent() {
+        // Recreate overlay windows to update content
         guard !overlayWindows.isEmpty else { return }
         
-        guard let timerEngine = timerEngine,
-              let alarmPlayer = alarmPlayer,
-              let profileStore = profileStore else { return }
+        let wasShowing = !overlayWindows.isEmpty
+        hideOverlay()
         
-        let currentScreens = Set(NSScreen.screens.map { ObjectIdentifier($0) })
-        
-        if currentScreens != windowScreens {
-            let wasShowing = !overlayWindows.isEmpty
-            hideOverlay()
-            
-            if wasShowing {
-                for screen in NSScreen.screens {
-                    let window = createOverlayWindow(for: screen)
-                    overlayWindows.append(window)
-                    windowScreens.insert(ObjectIdentifier(screen))
-                    window.orderFrontRegardless()
-                }
-            }
-        } else {
-            for window in overlayWindows {
-                let contentView = OverlayContentView(
-                    timerEngine: timerEngine,
-                    alarmPlayer: alarmPlayer,
-                    overlayManager: self,
-                    profileStore: profileStore
-                )
-                window.contentView = NSHostingView(rootView: contentView)
+        if wasShowing || isShowingPostBreakHold {
+            for screen in NSScreen.screens {
+                let window = createOverlayWindow(for: screen)
+                overlayWindows.append(window)
+                window.orderFrontRegardless()
             }
         }
     }
@@ -154,6 +131,7 @@ class OverlayManager: NSObject, ObservableObject {
         window.acceptsMouseMovedEvents = true
         window.isReleasedWhenClosed = false
         
+        // Make the window full screen
         window.setFrame(screen.frame, display: true)
         
         return window
@@ -208,6 +186,7 @@ struct OverlayContentView: View {
     
     var body: some View {
         ZStack {
+            // Semi-transparent background
             Color.black.opacity(0.85)
                 .ignoresSafeArea()
             
@@ -223,22 +202,27 @@ struct OverlayContentView: View {
     
     private var normalBreakView: some View {
         VStack(spacing: 40) {
+            // Phase indicator
             Text(timerEngine.phase.displayName)
                 .font(.system(size: 48, weight: .bold))
                 .foregroundColor(.white)
             
+            // Timer display
             Text(timerEngine.formattedRemaining)
                 .font(.system(size: 120, weight: .light, design: .monospaced))
                 .foregroundColor(.white)
             
+            // Progress message
             Text(breakMessage)
                 .font(.title2)
                 .foregroundColor(.white.opacity(0.8))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 60)
             
+            // Buttons
             VStack(spacing: 16) {
                 HStack(spacing: 20) {
+                    // Stop Alarm button (always visible when playing)
                     if alarmPlayer.isPlaying {
                         Button(action: { overlayManager.stopAlarm() }) {
                             HStack {
@@ -255,6 +239,7 @@ struct OverlayContentView: View {
                         .buttonStyle(.plain)
                     }
                     
+                    // End Break button (conditional)
                     if showEndBreakButton {
                         Button(action: { overlayManager.endBreak() }) {
                             HStack {
@@ -273,6 +258,7 @@ struct OverlayContentView: View {
                     }
                 }
                 
+                // Extra Time button
                 if showExtraTimeButton {
                     Button(action: { overlayManager.requestExtraTime() }) {
                         HStack {
@@ -291,6 +277,7 @@ struct OverlayContentView: View {
             }
             .padding(.top, 20)
             
+            // Skip countdown message
             if !overlayManager.skipEnabled && profileStore.currentProfile?.overlay.delayedSkipEnabled == true {
                 Text("Skip available in \(overlayManager.skipCountdown)s")
                     .font(.caption)
@@ -303,10 +290,12 @@ struct OverlayContentView: View {
     
     private var postBreakHoldView: some View {
         VStack(spacing: 40) {
+            // Completion message
             Text("Break Complete!")
                 .font(.system(size: 48, weight: .bold))
                 .foregroundColor(.white)
             
+            // Timer shows 00:00
             Text("00:00")
                 .font(.system(size: 120, weight: .light, design: .monospaced))
                 .foregroundColor(.white.opacity(0.6))
@@ -316,7 +305,9 @@ struct OverlayContentView: View {
                 .foregroundColor(.white.opacity(0.8))
                 .multilineTextAlignment(.center)
             
+            // Buttons
             HStack(spacing: 20) {
+                // Stop Alarm button (if playing)
                 if alarmPlayer.isPlaying {
                     Button(action: { overlayManager.stopAlarm() }) {
                         HStack {
@@ -333,6 +324,7 @@ struct OverlayContentView: View {
                     .buttonStyle(.plain)
                 }
                 
+                // Start Work button
                 Button(action: { overlayManager.confirmStartWork() }) {
                     HStack {
                         Image(systemName: "play.fill")
@@ -347,6 +339,7 @@ struct OverlayContentView: View {
                 }
                 .buttonStyle(.plain)
                 
+                // Cancel button
                 Button(action: { overlayManager.cancelAfterBreak() }) {
                     HStack {
                         Image(systemName: "xmark")
@@ -380,6 +373,8 @@ struct OverlayContentView: View {
     
     private var showEndBreakButton: Bool {
         guard let profile = profileStore.currentProfile else { return false }
+        
+        // Show if not strict, or if delayed skip is enabled
         return !profile.overlay.strictDefault || profile.overlay.delayedSkipEnabled
     }
     
@@ -388,24 +383,14 @@ struct OverlayContentView: View {
         return profile.overlay.extraTimeEnabled && !timerEngine.isInExtraTime
     }
     
-    /// Formats extra time text:
-    /// - Whole minutes: "1 min", "2 min", etc.
-    /// - Non-whole minutes: "1 min and 30 seconds", "2 min and 15 seconds", etc.
     private var extraTimeText: String {
         guard let profile = profileStore.currentProfile else { return "1 min" }
-        let totalSeconds = profile.overlay.extraTimeSeconds
-        let minutes = totalSeconds / 60
-        let seconds = totalSeconds % 60
-        
-        if seconds == 0 {
-            // Whole minutes
+        let seconds = profile.overlay.extraTimeSeconds
+        if seconds >= 60 {
+            let minutes = seconds / 60
             return "\(minutes) min"
-        } else if minutes == 0 {
-            // Only seconds (less than a minute)
-            return "\(seconds) seconds"
         } else {
-            // Minutes and seconds
-            return "\(minutes) min and \(seconds) seconds"
+            return "\(seconds)s"
         }
     }
     

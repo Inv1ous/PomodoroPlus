@@ -75,9 +75,11 @@ struct SoundSettings: Codable, Equatable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
+        // End sounds (new keys or defaults)
         workEndSoundId = try container.decodeIfPresent(String.self, forKey: .workEndSoundId) ?? "builtin.chime"
         breakEndSoundId = try container.decodeIfPresent(String.self, forKey: .breakEndSoundId) ?? "builtin.chime"
 
+        // Warning sounds: prefer new keys, migrate from old single key if needed
         if let ww = try container.decodeIfPresent(String.self, forKey: .workWarningSoundId),
            let bw = try container.decodeIfPresent(String.self, forKey: .breakWarningSoundId) {
             workWarningSoundId = ww
@@ -96,7 +98,7 @@ struct SoundSettings: Codable, Equatable {
         case breakEndSoundId
         case workWarningSoundId
         case breakWarningSoundId
-        case warningSoundId
+        case warningSoundId // legacy single warning sound id
     }
 
     func encode(to encoder: Encoder) throws {
@@ -124,6 +126,7 @@ struct NotificationSettings: Codable, Equatable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
+        // Migrate from old single-value key if present
         if let oldWarning = try? container.decode(Int.self, forKey: .warningSecondsBeforeEnd) {
             workWarningSecondsBeforeEnd = oldWarning
             breakWarningSecondsBeforeEnd = oldWarning
@@ -139,7 +142,7 @@ struct NotificationSettings: Codable, Equatable {
         case workWarningSecondsBeforeEnd
         case breakWarningSecondsBeforeEnd
         case bannerEnabled
-        case warningSecondsBeforeEnd
+        case warningSecondsBeforeEnd // Old key for migration
     }
 
     func encode(to encoder: Encoder) throws {
@@ -150,35 +153,38 @@ struct NotificationSettings: Codable, Equatable {
     }
 }
 
-// MARK: - Alarm Duration Mode
-
-/// Specifies whether alarm duration is measured in seconds or loop count
-enum AlarmDurationMode: String, Codable, Equatable, CaseIterable {
+/// Determines whether alarm duration is measured in seconds or loop count
+enum AlarmLoopMode: String, Codable, Equatable, CaseIterable {
     case seconds = "seconds"
-    case loopCount = "loopCount"
+    case times = "times"
     
     var displayName: String {
         switch self {
         case .seconds: return "seconds"
-        case .loopCount: return "times"
+        case .times: return "times"
         }
     }
 }
 
 struct AlarmSettings: Codable, Equatable {
-    // Duration values (interpreted based on mode)
-    var workWarningPlayValue: Int = 5
-    var breakWarningPlayValue: Int = 5
-    var breakStartPlayValue: Int = 10
-    var breakEndPlayValue: Int = 10
+    var workWarningPlaySeconds: Int = 5
+    var breakWarningPlaySeconds: Int = 5
+    var breakStartPlaySeconds: Int = 10
+    var breakEndPlaySeconds: Int = 10
     
-    // Duration modes
-    var workWarningPlayMode: AlarmDurationMode = .seconds
-    var breakWarningPlayMode: AlarmDurationMode = .seconds
-    var breakStartPlayMode: AlarmDurationMode = .seconds
-    var breakEndPlayMode: AlarmDurationMode = .seconds
+    /// Loop mode: whether to use seconds or loop count
+    var loopMode: AlarmLoopMode = .seconds
     
-    /// Per-event volume scalars (UI range: 0.0 ... 2.0)
+    /// Loop counts for each event (used when loopMode == .times)
+    var workWarningLoopCount: Int = 2
+    var breakWarningLoopCount: Int = 2
+    var breakStartLoopCount: Int = 3
+    var breakEndLoopCount: Int = 3
+    
+    /// Per-event volume scalars.
+    ///
+    /// UI range: 0.0 ... 2.0 (0% ... 200%).
+    /// Values above 1.0 will boost the audio using gain amplification.
     var workEndVolume: Double = 1.0
     var breakEndVolume: Double = 1.0
     var workWarningVolume: Double = 1.0
@@ -186,99 +192,116 @@ struct AlarmSettings: Codable, Equatable {
     
     init() {}
     
+    init(
+        workWarningPlaySeconds: Int,
+        breakWarningPlaySeconds: Int,
+        breakStartPlaySeconds: Int,
+        breakEndPlaySeconds: Int,
+        loopMode: AlarmLoopMode = .seconds,
+        workWarningLoopCount: Int = 2,
+        breakWarningLoopCount: Int = 2,
+        breakStartLoopCount: Int = 3,
+        breakEndLoopCount: Int = 3,
+        workEndVolume: Double,
+        breakEndVolume: Double,
+        workWarningVolume: Double,
+        breakWarningVolume: Double
+    ) {
+        self.workWarningPlaySeconds = workWarningPlaySeconds
+        self.breakWarningPlaySeconds = breakWarningPlaySeconds
+        self.breakStartPlaySeconds = breakStartPlaySeconds
+        self.breakEndPlaySeconds = breakEndPlaySeconds
+        self.loopMode = loopMode
+        self.workWarningLoopCount = workWarningLoopCount
+        self.breakWarningLoopCount = breakWarningLoopCount
+        self.breakStartLoopCount = breakStartLoopCount
+        self.breakEndLoopCount = breakEndLoopCount
+        self.workEndVolume = workEndVolume
+        self.breakEndVolume = breakEndVolume
+        self.workWarningVolume = workWarningVolume
+        self.breakWarningVolume = breakWarningVolume
+    }
+    
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         
-        // Try new format first (with modes)
-        if let workWarningVal = try? container.decode(Int.self, forKey: .workWarningPlayValue) {
-            workWarningPlayValue = workWarningVal
-            breakWarningPlayValue = try container.decodeIfPresent(Int.self, forKey: .breakWarningPlayValue) ?? 5
-            breakStartPlayValue = try container.decodeIfPresent(Int.self, forKey: .breakStartPlayValue) ?? 10
-            breakEndPlayValue = try container.decodeIfPresent(Int.self, forKey: .breakEndPlayValue) ?? 10
-            
-            workWarningPlayMode = try container.decodeIfPresent(AlarmDurationMode.self, forKey: .workWarningPlayMode) ?? .seconds
-            breakWarningPlayMode = try container.decodeIfPresent(AlarmDurationMode.self, forKey: .breakWarningPlayMode) ?? .seconds
-            breakStartPlayMode = try container.decodeIfPresent(AlarmDurationMode.self, forKey: .breakStartPlayMode) ?? .seconds
-            breakEndPlayMode = try container.decodeIfPresent(AlarmDurationMode.self, forKey: .breakEndPlayMode) ?? .seconds
-        }
-        // Try previous format (workWarningPlaySeconds)
-        else if let workWarning = try? container.decode(Int.self, forKey: .workWarningPlaySeconds) {
-            workWarningPlayValue = workWarning
-            breakWarningPlayValue = try container.decodeIfPresent(Int.self, forKey: .breakWarningPlaySeconds) ?? 5
-            breakStartPlayValue = try container.decodeIfPresent(Int.self, forKey: .breakStartPlaySeconds) ?? 10
-            breakEndPlayValue = try container.decodeIfPresent(Int.self, forKey: .breakEndPlaySeconds) ?? 10
-            
-            workWarningPlayMode = .seconds
-            breakWarningPlayMode = .seconds
-            breakStartPlayMode = .seconds
-            breakEndPlayMode = .seconds
+        // Decode loop mode (new field, defaults to .seconds for migration)
+        loopMode = try container.decodeIfPresent(AlarmLoopMode.self, forKey: .loopMode) ?? .seconds
+        
+        // Decode loop counts (new fields, use defaults for migration)
+        workWarningLoopCount = try container.decodeIfPresent(Int.self, forKey: .workWarningLoopCount) ?? 2
+        breakWarningLoopCount = try container.decodeIfPresent(Int.self, forKey: .breakWarningLoopCount) ?? 2
+        breakStartLoopCount = try container.decodeIfPresent(Int.self, forKey: .breakStartLoopCount) ?? 3
+        breakEndLoopCount = try container.decodeIfPresent(Int.self, forKey: .breakEndLoopCount) ?? 3
+        
+        // Try new format first
+        if let workWarning = try? container.decode(Int.self, forKey: .workWarningPlaySeconds) {
+            workWarningPlaySeconds = workWarning
+            breakWarningPlaySeconds = try container.decodeIfPresent(Int.self, forKey: .breakWarningPlaySeconds) ?? 5
+            breakStartPlaySeconds = try container.decodeIfPresent(Int.self, forKey: .breakStartPlaySeconds) ?? 10
+            breakEndPlaySeconds = try container.decodeIfPresent(Int.self, forKey: .breakEndPlaySeconds) ?? 10
+
+            // Volume (new per-event keys) or migrate from legacy single `volume`
+            let legacyVolume = try container.decodeIfPresent(Double.self, forKey: .volume) ?? 1.0
+            workEndVolume = Self.clampVolume(try container.decodeIfPresent(Double.self, forKey: .workEndVolume) ?? legacyVolume)
+            breakEndVolume = Self.clampVolume(try container.decodeIfPresent(Double.self, forKey: .breakEndVolume) ?? legacyVolume)
+            workWarningVolume = Self.clampVolume(try container.decodeIfPresent(Double.self, forKey: .workWarningVolume) ?? legacyVolume)
+            breakWarningVolume = Self.clampVolume(try container.decodeIfPresent(Double.self, forKey: .breakWarningVolume) ?? legacyVolume)
         }
         // Try old single warning format
         else if let oldWarning = try? container.decode(Int.self, forKey: .warningPlaySeconds) {
-            workWarningPlayValue = oldWarning
-            breakWarningPlayValue = oldWarning
-            breakStartPlayValue = try container.decodeIfPresent(Int.self, forKey: .breakStartPlaySeconds) ?? 10
-            breakEndPlayValue = try container.decodeIfPresent(Int.self, forKey: .breakEndPlaySeconds) ?? 10
-            
-            workWarningPlayMode = .seconds
-            breakWarningPlayMode = .seconds
-            breakStartPlayMode = .seconds
-            breakEndPlayMode = .seconds
+            workWarningPlaySeconds = oldWarning
+            breakWarningPlaySeconds = oldWarning
+            breakStartPlaySeconds = try container.decodeIfPresent(Int.self, forKey: .breakStartPlaySeconds) ?? 10
+            breakEndPlaySeconds = try container.decodeIfPresent(Int.self, forKey: .breakEndPlaySeconds) ?? 10
+
+            let legacyVolume = try container.decodeIfPresent(Double.self, forKey: .volume) ?? 1.0
+            workEndVolume = Self.clampVolume(try container.decodeIfPresent(Double.self, forKey: .workEndVolume) ?? legacyVolume)
+            breakEndVolume = Self.clampVolume(try container.decodeIfPresent(Double.self, forKey: .breakEndVolume) ?? legacyVolume)
+            workWarningVolume = Self.clampVolume(try container.decodeIfPresent(Double.self, forKey: .workWarningVolume) ?? legacyVolume)
+            breakWarningVolume = Self.clampVolume(try container.decodeIfPresent(Double.self, forKey: .breakWarningVolume) ?? legacyVolume)
         }
-        // Try oldest single max-play format
+        // Fall back to old maxPlaySeconds format
         else if let maxPlay = try? container.decode(Int.self, forKey: .maxPlaySeconds) {
-            workWarningPlayValue = maxPlay
-            breakWarningPlayValue = maxPlay
-            breakStartPlayValue = maxPlay
-            breakEndPlayValue = maxPlay
-            
-            workWarningPlayMode = .seconds
-            breakWarningPlayMode = .seconds
-            breakStartPlayMode = .seconds
-            breakEndPlayMode = .seconds
+            workWarningPlaySeconds = min(maxPlay, 5)
+            breakWarningPlaySeconds = min(maxPlay, 5)
+            breakStartPlaySeconds = maxPlay
+            breakEndPlaySeconds = maxPlay
+            workEndVolume = 1.0
+            breakEndVolume = 1.0
+            workWarningVolume = 1.0
+            breakWarningVolume = 1.0
         }
-        // Fallback defaults
+        // Use defaults
         else {
-            workWarningPlayValue = 5
-            breakWarningPlayValue = 5
-            breakStartPlayValue = 10
-            breakEndPlayValue = 10
-            
-            workWarningPlayMode = .seconds
-            breakWarningPlayMode = .seconds
-            breakStartPlayMode = .seconds
-            breakEndPlayMode = .seconds
+            workWarningPlaySeconds = 5
+            breakWarningPlaySeconds = 5
+            breakStartPlaySeconds = 10
+            breakEndPlaySeconds = 10
+            workEndVolume = 1.0
+            breakEndVolume = 1.0
+            workWarningVolume = 1.0
+            breakWarningVolume = 1.0
         }
-        
-        // Volume
-        let legacyVolume = try container.decodeIfPresent(Double.self, forKey: .volume) ?? 1.0
-        workEndVolume = Self.clampVolume(try container.decodeIfPresent(Double.self, forKey: .workEndVolume) ?? legacyVolume)
-        breakEndVolume = Self.clampVolume(try container.decodeIfPresent(Double.self, forKey: .breakEndVolume) ?? legacyVolume)
-        workWarningVolume = Self.clampVolume(try container.decodeIfPresent(Double.self, forKey: .workWarningVolume) ?? legacyVolume)
-        breakWarningVolume = Self.clampVolume(try container.decodeIfPresent(Double.self, forKey: .breakWarningVolume) ?? legacyVolume)
     }
     
     private enum CodingKeys: String, CodingKey {
-        case workWarningPlayValue
-        case breakWarningPlayValue
-        case breakStartPlayValue
-        case breakEndPlayValue
-        case workWarningPlayMode
-        case breakWarningPlayMode
-        case breakStartPlayMode
-        case breakEndPlayMode
+        case workWarningPlaySeconds
+        case breakWarningPlaySeconds
+        case breakStartPlaySeconds
+        case breakEndPlaySeconds
+        case loopMode
+        case workWarningLoopCount
+        case breakWarningLoopCount
+        case breakStartLoopCount
+        case breakEndLoopCount
         case workEndVolume
         case breakEndVolume
         case workWarningVolume
         case breakWarningVolume
         case volume
-        // Legacy keys for migration
-        case workWarningPlaySeconds
-        case breakWarningPlaySeconds
-        case breakStartPlaySeconds
-        case breakEndPlaySeconds
-        case warningPlaySeconds
-        case maxPlaySeconds
+        case warningPlaySeconds  // Old key for migration
+        case maxPlaySeconds      // Oldest key for migration
     }
 
     private static func clampVolume(_ value: Double) -> Double {
@@ -287,15 +310,16 @@ struct AlarmSettings: Codable, Equatable {
     
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(workWarningPlayValue, forKey: .workWarningPlayValue)
-        try container.encode(breakWarningPlayValue, forKey: .breakWarningPlayValue)
-        try container.encode(breakStartPlayValue, forKey: .breakStartPlayValue)
-        try container.encode(breakEndPlayValue, forKey: .breakEndPlayValue)
+        try container.encode(workWarningPlaySeconds, forKey: .workWarningPlaySeconds)
+        try container.encode(breakWarningPlaySeconds, forKey: .breakWarningPlaySeconds)
+        try container.encode(breakStartPlaySeconds, forKey: .breakStartPlaySeconds)
+        try container.encode(breakEndPlaySeconds, forKey: .breakEndPlaySeconds)
         
-        try container.encode(workWarningPlayMode, forKey: .workWarningPlayMode)
-        try container.encode(breakWarningPlayMode, forKey: .breakWarningPlayMode)
-        try container.encode(breakStartPlayMode, forKey: .breakStartPlayMode)
-        try container.encode(breakEndPlayMode, forKey: .breakEndPlayMode)
+        try container.encode(loopMode, forKey: .loopMode)
+        try container.encode(workWarningLoopCount, forKey: .workWarningLoopCount)
+        try container.encode(breakWarningLoopCount, forKey: .breakWarningLoopCount)
+        try container.encode(breakStartLoopCount, forKey: .breakStartLoopCount)
+        try container.encode(breakEndLoopCount, forKey: .breakEndLoopCount)
 
         try container.encode(Self.clampVolume(workEndVolume), forKey: .workEndVolume)
         try container.encode(Self.clampVolume(breakEndVolume), forKey: .breakEndVolume)
@@ -309,10 +333,12 @@ struct OverlaySettings: Codable, Equatable {
     var delayedSkipEnabled: Bool = false
     var delayedSkipSeconds: Int = 30
     
+    // "Need More Time" feature
     var extraTimeEnabled: Bool = true
-    var extraTimeSeconds: Int = 60
+    var extraTimeSeconds: Int = 60  // Default 1 minute extra
     
-    var holdAfterBreak: Bool = false
+    // Post-break behavior
+    var holdAfterBreak: Bool = false  // Keep overlay at 0:00 after break ends
     
     init() {}
     
@@ -346,6 +372,22 @@ struct FeatureSettings: Codable, Equatable {
 
     init() {}
 
+    init(
+        autoStartWork: Bool,
+        dailyStartEnabled: Bool,
+        dailyStartTimeHHMM: String,
+        menuBarCountdownTextEnabled: Bool,
+        focusModeIntegrationEnabled: Bool,
+        menuBarIcons: MenuBarIconSettings
+    ) {
+        self.autoStartWork = autoStartWork
+        self.dailyStartEnabled = dailyStartEnabled
+        self.dailyStartTimeHHMM = dailyStartTimeHHMM
+        self.menuBarCountdownTextEnabled = menuBarCountdownTextEnabled
+        self.focusModeIntegrationEnabled = focusModeIntegrationEnabled
+        self.menuBarIcons = menuBarIcons
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         autoStartWork = try container.decodeIfPresent(Bool.self, forKey: .autoStartWork) ?? false
@@ -368,6 +410,7 @@ struct FeatureSettings: Codable, Equatable {
 
 struct MenuBarIconSettings: Codable, Equatable {
     var useCustomIcons: Bool = false
+    // Values can be emoji like "🍅" or custom path like "custom:myicon.png"
     var idleIcon: String = "🍅"
     var workIcon: String = "🍅"
     var breakIcon: String = "☕️"
@@ -392,12 +435,6 @@ struct StatsEntry: Codable {
     var skipped: Bool
     var strictMode: Bool
     
-    private static let iso8601Formatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter
-    }()
-    
     static func create(
         profileId: String,
         phase: TimerPhase,
@@ -407,8 +444,10 @@ struct StatsEntry: Codable {
         skipped: Bool,
         strictMode: Bool
     ) -> StatsEntry {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
         return StatsEntry(
-            ts: iso8601Formatter.string(from: Date()),
+            ts: formatter.string(from: Date()),
             profileId: profileId,
             phase: phase,
             plannedSeconds: plannedSeconds,

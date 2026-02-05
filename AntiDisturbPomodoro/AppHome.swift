@@ -6,14 +6,6 @@ class AppHome: ObservableObject {
     
     static let appName = "AntiDisturbPomodoro"
     
-    // MARK: - Cached Date Formatter (Memory optimization)
-    /// Reuse a single ISO8601DateFormatter for filename generation
-    private static let iso8601Formatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter
-    }()
-    
     // MARK: - Directory URLs
     
     var rootURL: URL {
@@ -134,8 +126,7 @@ class AppHome: ObservableObject {
     }
     
     func generateImportedSoundFilename(originalName: String, format: String) -> String {
-        // Use cached formatter instead of creating a new one each time
-        let timestamp = Self.iso8601Formatter.string(from: Date())
+        let timestamp = ISO8601DateFormatter().string(from: Date())
             .replacingOccurrences(of: ":", with: "")
             .replacingOccurrences(of: "-", with: "")
         let safeName = originalName

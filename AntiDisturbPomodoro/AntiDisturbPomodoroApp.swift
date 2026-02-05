@@ -14,6 +14,7 @@ struct AntiDisturbPomodoroApp: App {
                 .environmentObject(appDelegate.timerEngine)
                 .environmentObject(appDelegate.alarmPlayer)
                 .environmentObject(appDelegate.statsStore)
+                .environmentObject(appDelegate.updateChecker)
         }
     }
 }
@@ -27,6 +28,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     lazy var statsStore = StatsStore(appHome: appHome)
     lazy var alarmPlayer = AlarmPlayer(soundLibrary: soundLibrary)
     lazy var notificationScheduler = NotificationScheduler()
+    lazy var updateChecker = UpdateChecker()
     lazy var timerEngine: TimerEngine = {
         let engine = TimerEngine(
             profileStore: profileStore,
@@ -69,6 +71,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Hide dock icon (menu bar app)
         NSApp.setActivationPolicy(.accessory)
+        
+        // Check for updates on startup (after a short delay to let the app fully launch)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            self?.updateChecker.checkOnStartup()
+        }
     }
     
     func applicationWillTerminate(_ notification: Notification) {

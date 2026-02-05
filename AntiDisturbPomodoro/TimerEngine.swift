@@ -34,19 +34,16 @@ class TimerEngine: ObservableObject {
     private var phaseEndDate: Date?
     private var pausedRemaining: TimeInterval?
     private var phaseStartDate: Date?
-    private var warningFired = false
     private var extraTimeEndDate: Date?
+    
+    /// Track if warning has been fired for the current phase to prevent duplicates
+    private var warningFired = false
+    
+    /// Track the remaining time when warning was fired to detect if we've passed the warning threshold
+    private var warningFiredAtRemaining: TimeInterval?
     
     private var timer: Timer?
     private var cancellables = Set<AnyCancellable>()
-    
-    // MARK: - Cached Values for Display (CPU optimization)
-    
-    private var _cachedFormattedRemaining: String = "00:00"
-    private var _lastFormattedSeconds: Int = -1
-    
-    private var _cachedFormattedExtraTime: String = "00:00"
-    private var _lastFormattedExtraSeconds: Int = -1
     
     // MARK: - Dependencies
     
@@ -70,6 +67,7 @@ class TimerEngine: ObservableObject {
     }
     
     private func setupObservers() {
+        // Listen for wake from sleep
         NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)
             .sink { [weak self] _ in
                 self?.handleWakeFromSleep()
@@ -82,6 +80,7 @@ class TimerEngine: ObservableObject {
     func start() {
         guard let profile = profileStore.currentProfile else { return }
         
+        // If holding after break, start work session
         if isHoldingAfterBreak {
             isHoldingAfterBreak = false
             startWorkSession()
@@ -89,13 +88,28 @@ class TimerEngine: ObservableObject {
         }
         
         if state == .paused, let remaining = pausedRemaining {
+            // Resume from pause
             phaseEndDate = Date().addingTimeInterval(remaining)
             pausedRemaining = nil
             state = .running
-            warningFired = false
+            
+            // Check if warning should have already fired based on remaining time
+            let warningSecondsInt = phase.isBreak ? profile.notifications.breakWarningSecondsBeforeEnd : profile.notifications.workWarningSecondsBeforeEnd
+            let warningSeconds = TimeInterval(warningSecondsInt)
+            
+            // Only reset warningFired if we haven't passed the warning threshold yet
+            if remaining > warningSeconds {
+                warningFired = false
+                warningFiredAtRemaining = nil
+            }
+            // If remaining <= warningSeconds, keep warningFired as true to prevent duplicate
+            
             scheduleNotifications()
             startTicking()
         } else if state == .idle {
+            // Start fresh - begin new notification session
+            notificationScheduler.startNewSession()
+            
             phase = .work
             remainingSeconds = TimeInterval(profile.ruleset.workSeconds)
             phaseEndDate = Date().addingTimeInterval(remainingSeconds)
@@ -103,6 +117,7 @@ class TimerEngine: ObservableObject {
             pausedRemaining = nil
             state = .running
             warningFired = false
+            warningFiredAtRemaining = nil
             scheduleNotifications()
             startTicking()
         }
@@ -110,6 +125,9 @@ class TimerEngine: ObservableObject {
     
     private func startWorkSession() {
         guard let profile = profileStore.currentProfile else { return }
+        
+        // Start new notification session for new phase
+        notificationScheduler.startNewSession()
         
         phase = .work
         let duration = TimeInterval(profile.ruleset.workSeconds)
@@ -119,6 +137,7 @@ class TimerEngine: ObservableObject {
         pausedRemaining = nil
         state = .running
         warningFired = false
+        warningFiredAtRemaining = nil
         
         onBreakEnd?()
         scheduleNotifications()
@@ -163,6 +182,7 @@ class TimerEngine: ObservableObject {
         pausedRemaining = nil
         phaseStartDate = nil
         warningFired = false
+        warningFiredAtRemaining = nil
         completedWorkSessions = 0
         isInExtraTime = false
         extraTimeRemaining = 0
@@ -170,15 +190,14 @@ class TimerEngine: ObservableObject {
         extraTimeEndDate = nil
         isHoldingAfterBreak = false
         
-        _lastFormattedSeconds = -1
-        _lastFormattedExtraSeconds = -1
-        
+        // If we were on break, hide overlay
         onBreakEnd?()
     }
     
     func skip() {
         guard let profile = profileStore.currentProfile else { return }
         
+        // If holding after break, just dismiss without starting work
         if isHoldingAfterBreak {
             isHoldingAfterBreak = false
             state = .idle
@@ -186,6 +205,11 @@ class TimerEngine: ObservableObject {
             return
         }
         
+        // Stop timer and cancel notifications immediately
+        stopTicking()
+        cancelNotifications()
+        
+        // Log stats for skipped phase
         if let startDate = phaseStartDate {
             let actualSeconds = Int(Date().timeIntervalSince(startDate))
             let plannedSeconds = plannedSecondsForPhase(phase, profile: profile)
@@ -200,6 +224,7 @@ class TimerEngine: ObservableObject {
             )
         }
         
+        // Stop any playing alarm and move to next phase
         alarmPlayer.stop()
         advancePhase()
     }
@@ -212,16 +237,20 @@ class TimerEngine: ObservableObject {
               state == .running,
               !isInExtraTime else { return }
         
+        // Save current break remaining time
         savedBreakRemaining = remainingSeconds
         
+        // Stop break timer
         stopTicking()
         cancelNotifications()
         
+        // Start extra time
         isInExtraTime = true
         let extraSeconds = TimeInterval(profile.overlay.extraTimeSeconds)
         extraTimeRemaining = extraSeconds
         extraTimeEndDate = Date().addingTimeInterval(extraSeconds)
         
+        // Hide overlay during extra time
         onBreakEnd?()
         
         startTicking()
@@ -229,6 +258,7 @@ class TimerEngine: ObservableObject {
     
     func endExtraTimeEarly() {
         guard isInExtraTime else { return }
+        
         finishExtraTime()
     }
     
@@ -237,16 +267,39 @@ class TimerEngine: ObservableObject {
         extraTimeEndDate = nil
         extraTimeRemaining = 0
         
+        // Resume break with saved time
         if savedBreakRemaining > 0 {
             remainingSeconds = savedBreakRemaining
             phaseEndDate = Date().addingTimeInterval(savedBreakRemaining)
             savedBreakRemaining = 0
-            warningFired = false
             
+            // Check if warning should fire for remaining break time
+            if let profile = profileStore.currentProfile {
+                let warningSecondsInt = phase.isBreak ? profile.notifications.breakWarningSecondsBeforeEnd : profile.notifications.workWarningSecondsBeforeEnd
+                let warningSeconds = TimeInterval(warningSecondsInt)
+                
+                // Reset warning state only if we have enough time left
+                if remainingSeconds > warningSeconds {
+                    warningFired = false
+                    warningFiredAtRemaining = nil
+                } else {
+                    // Already past warning threshold, mark as fired to prevent duplicate
+                    warningFired = true
+                    warningFiredAtRemaining = remainingSeconds
+                }
+            } else {
+                warningFired = false
+                warningFiredAtRemaining = nil
+            }
+            
+            // Show overlay again
             onBreakStart?()
             
+            // Start new notification session for resumed break
+            notificationScheduler.startNewSession()
             scheduleNotifications()
         } else {
+            // No break time left, advance to work
             advancePhase()
         }
         
@@ -257,12 +310,14 @@ class TimerEngine: ObservableObject {
     
     func confirmStartWork() {
         guard isHoldingAfterBreak else { return }
+        
         isHoldingAfterBreak = false
         startWorkSession()
     }
     
     func cancelAfterBreak() {
         guard isHoldingAfterBreak else { return }
+        
         isHoldingAfterBreak = false
         state = .idle
         phase = .work
@@ -274,7 +329,7 @@ class TimerEngine: ObservableObject {
     
     private func startTicking() {
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             self?.tick()
         }
         if let timer = timer {
@@ -288,6 +343,7 @@ class TimerEngine: ObservableObject {
     }
     
     private func tick() {
+        // Handle extra time tick
         if isInExtraTime {
             guard let endDate = extraTimeEndDate else { return }
             extraTimeRemaining = max(0, endDate.timeIntervalSinceNow)
@@ -302,15 +358,21 @@ class TimerEngine: ObservableObject {
         
         remainingSeconds = max(0, endDate.timeIntervalSinceNow)
         
+        // Check for warning (tick-based backup - scheduled notification is primary)
+        // Only fire if we haven't already fired a warning this phase
         if let profile = profileStore.currentProfile {
             let warningSecondsInt = phase.isBreak ? profile.notifications.breakWarningSecondsBeforeEnd : profile.notifications.workWarningSecondsBeforeEnd
             let warningSeconds = TimeInterval(warningSecondsInt)
+            
+            // Fire warning when we cross the threshold and haven't fired yet
             if remainingSeconds <= warningSeconds && !warningFired && remainingSeconds > 0 {
                 warningFired = true
+                warningFiredAtRemaining = remainingSeconds
                 fireWarning()
             }
         }
         
+        // Check for phase end
         if remainingSeconds <= 0 {
             phaseEnded()
         }
@@ -321,13 +383,31 @@ class TimerEngine: ObservableObject {
         
         onWarning?()
         
+        // Play warning sound (work vs break) with volume and loop settings
         let soundId = phase.isBreak ? profile.sounds.breakWarningSoundId : profile.sounds.workWarningSoundId
-        let value = phase.isBreak ? profile.alarm.breakWarningPlayValue : profile.alarm.workWarningPlayValue
-        let mode = phase.isBreak ? profile.alarm.breakWarningPlayMode : profile.alarm.workWarningPlayMode
         let volume = phase.isBreak ? profile.alarm.breakWarningVolume : profile.alarm.workWarningVolume
         
         if !soundId.isEmpty && soundId != "none" {
-            alarmPlayer.play(soundId: soundId, value: value, mode: mode, volume: volume)
+            let config: AlarmPlaybackConfig
+            switch profile.alarm.loopMode {
+            case .seconds:
+                let duration = phase.isBreak ? profile.alarm.breakWarningPlaySeconds : profile.alarm.workWarningPlaySeconds
+                config = AlarmPlaybackConfig(
+                    maxDuration: TimeInterval(duration),
+                    loopCount: 1,
+                    loopMode: .seconds,
+                    volume: volume
+                )
+            case .times:
+                let loopCount = phase.isBreak ? profile.alarm.breakWarningLoopCount : profile.alarm.workWarningLoopCount
+                config = AlarmPlaybackConfig(
+                    maxDuration: 60, // Safety fallback
+                    loopCount: loopCount,
+                    loopMode: .times,
+                    volume: volume
+                )
+            }
+            alarmPlayer.play(soundId: soundId, config: config)
         }
     }
     
@@ -339,6 +419,7 @@ class TimerEngine: ObservableObject {
         
         onPhaseEnd?()
         
+        // Log stats
         if let startDate = phaseStartDate {
             let actualSeconds = Int(Date().timeIntervalSince(startDate))
             let plannedSeconds = plannedSecondsForPhase(phase, profile: profile)
@@ -353,32 +434,49 @@ class TimerEngine: ObservableObject {
             )
         }
         
-        // Play end sound with appropriate duration mode and volume
+        // Play end sound with appropriate settings based on loop mode
         let soundId: String
-        let value: Int
-        let mode: AlarmDurationMode
+        let volume: Double
         
         if phase == .work {
             // Work ended, break is starting
             soundId = profile.sounds.workEndSoundId
-            value = profile.alarm.breakStartPlayValue
-            mode = profile.alarm.breakStartPlayMode
+            volume = profile.alarm.workEndVolume
         } else {
             // Break ended
             soundId = profile.sounds.breakEndSoundId
-            value = profile.alarm.breakEndPlayValue
-            mode = profile.alarm.breakEndPlayMode
+            volume = profile.alarm.breakEndVolume
         }
         
         if !soundId.isEmpty && soundId != "none" {
-            let volume = (phase == .work) ? profile.alarm.workEndVolume : profile.alarm.breakEndVolume
-            alarmPlayer.play(soundId: soundId, value: value, mode: mode, volume: volume)
+            let config: AlarmPlaybackConfig
+            switch profile.alarm.loopMode {
+            case .seconds:
+                let duration = (phase == .work) ? profile.alarm.breakStartPlaySeconds : profile.alarm.breakEndPlaySeconds
+                config = AlarmPlaybackConfig(
+                    maxDuration: TimeInterval(duration),
+                    loopCount: 1,
+                    loopMode: .seconds,
+                    volume: volume
+                )
+            case .times:
+                let loopCount = (phase == .work) ? profile.alarm.breakStartLoopCount : profile.alarm.breakEndLoopCount
+                config = AlarmPlaybackConfig(
+                    maxDuration: 120, // Safety fallback
+                    loopCount: loopCount,
+                    loopMode: .times,
+                    volume: volume
+                )
+            }
+            alarmPlayer.play(soundId: soundId, config: config)
         }
         
+        // Track completed work sessions
         if phase == .work {
             completedWorkSessions += 1
         }
         
+        // Check for post-break hold
         if phase.isBreak && profile.overlay.holdAfterBreak {
             isHoldingAfterBreak = true
             state = .idle
@@ -387,6 +485,7 @@ class TimerEngine: ObservableObject {
             return
         }
         
+        // Advance phase
         advancePhase()
     }
     
@@ -395,6 +494,7 @@ class TimerEngine: ObservableObject {
         
         let wasBreak = phase.isBreak
         
+        // Determine next phase
         if phase == .work {
             if completedWorkSessions > 0 && completedWorkSessions % profile.ruleset.longBreakEvery == 0 {
                 phase = .longBreak
@@ -405,16 +505,23 @@ class TimerEngine: ObservableObject {
             phase = .work
         }
         
+        // Start new notification session for new phase
+        notificationScheduler.startNewSession()
+        
+        // Calculate duration
         let duration = TimeInterval(plannedSecondsForPhase(phase, profile: profile))
         remainingSeconds = duration
         warningFired = false
+        warningFiredAtRemaining = nil
         
+        // Handle break start/end callbacks
         if phase.isBreak && !wasBreak {
             onBreakStart?()
         } else if !phase.isBreak && wasBreak {
             onBreakEnd?()
         }
         
+        // Auto-start based on settings
         if phase == .work && profile.features.autoStartWork {
             phaseEndDate = Date().addingTimeInterval(duration)
             phaseStartDate = Date()
@@ -422,12 +529,14 @@ class TimerEngine: ObservableObject {
             scheduleNotifications()
             startTicking()
         } else if phase.isBreak {
+            // Always auto-start breaks
             phaseEndDate = Date().addingTimeInterval(duration)
             phaseStartDate = Date()
             state = .running
             scheduleNotifications()
             startTicking()
         } else {
+            // Manual start required
             state = .idle
             phaseEndDate = nil
             phaseStartDate = nil
@@ -453,11 +562,16 @@ class TimerEngine: ObservableObject {
         let warningSeconds = TimeInterval(warningSecondsInt)
         let warningDate = endDate.addingTimeInterval(-warningSeconds)
         
-        if warningDate > Date() {
-            notificationScheduler.scheduleWarning(at: warningDate, phase: phase)
+        // Schedule warning notification only if warning hasn't already fired
+        // and there's enough time left for the warning
+        if warningDate > Date() && !warningFired {
+            notificationScheduler.scheduleWarning(at: warningDate, phase: phase, warningSeconds: warningSecondsInt)
         }
         
-        notificationScheduler.schedulePhaseEnd(at: endDate, phase: phase)
+        // Schedule end notification
+        if endDate > Date() {
+            notificationScheduler.schedulePhaseEnd(at: endDate, phase: phase)
+        }
     }
     
     private func cancelNotifications() {
@@ -467,6 +581,7 @@ class TimerEngine: ObservableObject {
     // MARK: - Sleep/Wake Handling
     
     private func handleWakeFromSleep() {
+        // Handle extra time wake
         if isInExtraTime, let endDate = extraTimeEndDate {
             let remaining = endDate.timeIntervalSinceNow
             if remaining <= 0 {
@@ -482,11 +597,27 @@ class TimerEngine: ObservableObject {
         let remaining = endDate.timeIntervalSinceNow
         
         if remaining <= 0 {
+            // Phase ended while sleeping
             remainingSeconds = 0
             phaseEnded()
         } else {
             remainingSeconds = remaining
-            cancelNotifications()
+            
+            // Check if warning should have fired while sleeping
+            if let profile = profileStore.currentProfile {
+                let warningSecondsInt = phase.isBreak ? profile.notifications.breakWarningSecondsBeforeEnd : profile.notifications.workWarningSecondsBeforeEnd
+                let warningSeconds = TimeInterval(warningSecondsInt)
+                
+                if remaining <= warningSeconds && !warningFired {
+                    // Warning time passed while sleeping, fire it now
+                    warningFired = true
+                    warningFiredAtRemaining = remaining
+                    fireWarning()
+                }
+            }
+            
+            // Reschedule notifications - start new session to avoid stale notifications
+            notificationScheduler.startNewSession()
             scheduleNotifications()
         }
     }
@@ -494,37 +625,27 @@ class TimerEngine: ObservableObject {
     // MARK: - State Persistence
     
     func saveState() {
+        // Save current state for potential restoration
         // Implementation optional for v1
     }
     
     func restoreState() {
+        // Restore state from previous session
         // Implementation optional for v1
     }
     
-    // MARK: - Display Helpers (Optimized with caching)
+    // MARK: - Display Helpers
     
     var formattedRemaining: String {
         let seconds = isInExtraTime ? extraTimeRemaining : remainingSeconds
-        let intSeconds = Int(seconds)
-        
-        if intSeconds != _lastFormattedSeconds {
-            let minutes = intSeconds / 60
-            let secs = intSeconds % 60
-            _cachedFormattedRemaining = String(format: "%02d:%02d", minutes, secs)
-            _lastFormattedSeconds = intSeconds
-        }
-        return _cachedFormattedRemaining
+        let minutes = Int(seconds) / 60
+        let secs = Int(seconds) % 60
+        return String(format: "%02d:%02d", minutes, secs)
     }
     
     var formattedExtraTimeRemaining: String {
-        let intSeconds = Int(extraTimeRemaining)
-        
-        if intSeconds != _lastFormattedExtraSeconds {
-            let minutes = intSeconds / 60
-            let seconds = intSeconds % 60
-            _cachedFormattedExtraTime = String(format: "%02d:%02d", minutes, seconds)
-            _lastFormattedExtraSeconds = intSeconds
-        }
-        return _cachedFormattedExtraTime
+        let minutes = Int(extraTimeRemaining) / 60
+        let seconds = Int(extraTimeRemaining) % 60
+        return String(format: "%02d:%02d", minutes, seconds)
     }
 }

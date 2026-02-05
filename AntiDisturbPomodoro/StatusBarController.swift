@@ -18,12 +18,6 @@ class StatusBarController: NSObject {
     private let alarmPlayer: AlarmPlayer
     private let statsStore: StatsStore
     
-    // MARK: - Optimization: Throttle menu bar updates
-    private var lastDisplayedTime: String = ""
-    private var lastState: TimerState = .idle
-    private var lastPhase: TimerPhase = .work
-    private var lastIsExtraTime: Bool = false
-    
     init(
         appHome: AppHome,
         soundLibrary: SoundLibrary,
@@ -79,6 +73,7 @@ class StatusBarController: NSObject {
     }
     
     private func setupEventMonitor() {
+        // Close popover when clicking outside
         eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             if self?.popover.isShown == true {
                 self?.closePopover()
@@ -87,47 +82,29 @@ class StatusBarController: NSObject {
     }
     
     private func observeTimerUpdates() {
+        // Update menu bar when timer changes
         timerEngine.$remainingSeconds
             .combineLatest(timerEngine.$state, timerEngine.$phase, timerEngine.$isInExtraTime)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] remaining, state, phase, isExtraTime in
-                self?.updateMenuBarIfNeeded(remaining: remaining, state: state, phase: phase, isExtraTime: isExtraTime)
+            .sink { [weak self] _, _, _, _ in
+                self?.updateMenuBar()
             }
             .store(in: &cancellables)
         
         profileStore.$currentProfileId
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                self?.forceUpdateMenuBar()
+                self?.updateMenuBar()
             }
             .store(in: &cancellables)
         
+        // Also observe profile changes for icon updates
         profileStore.objectWillChange
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                self?.forceUpdateMenuBar()
+                self?.updateMenuBar()
             }
             .store(in: &cancellables)
-    }
-    
-    // MARK: - Optimized Menu Bar Update
-    
-    private func updateMenuBarIfNeeded(remaining: TimeInterval, state: TimerState, phase: TimerPhase, isExtraTime: Bool) {
-        let currentTime = timerEngine.formattedRemaining
-        let stateChanged = state != lastState || phase != lastPhase || isExtraTime != lastIsExtraTime
-        
-        if currentTime != lastDisplayedTime || stateChanged {
-            lastDisplayedTime = currentTime
-            lastState = state
-            lastPhase = phase
-            lastIsExtraTime = isExtraTime
-            updateMenuBar()
-        }
-    }
-    
-    private func forceUpdateMenuBar() {
-        lastDisplayedTime = ""
-        updateMenuBar()
     }
     
     private func updateMenuBar() {
@@ -137,9 +114,10 @@ class StatusBarController: NSObject {
         let iconSettings = profile.features.menuBarIcons
         let showCountdown = profile.features.menuBarCountdownTextEnabled && (timerEngine.state != .idle || timerEngine.isInExtraTime)
         
+        // Determine which icon to show based on state
         let iconValue: String
         if timerEngine.isInExtraTime {
-            iconValue = "⏰"
+            iconValue = "⏰"  // Special icon for extra time
         } else {
             switch timerEngine.state {
             case .idle:
@@ -151,12 +129,14 @@ class StatusBarController: NSObject {
             }
         }
         
+        // Try to load custom image
         if iconSettings.useCustomIcons && !timerEngine.isInExtraTime,
            let image = appHome.loadMenuBarIcon(iconValue) {
             button.image = image
             button.imagePosition = showCountdown ? .imageLeft : .imageOnly
             button.title = showCountdown ? " \(timerEngine.formattedRemaining)" : ""
         } else {
+            // Use emoji text
             button.image = nil
             if showCountdown {
                 button.title = "\(iconValue) \(timerEngine.formattedRemaining)"
@@ -179,6 +159,8 @@ class StatusBarController: NSObject {
     private func showPopover() {
         guard let button = statusItem.button else { return }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        
+        // Activate app to ensure popover is interactive
         NSApp.activate(ignoringOtherApps: true)
     }
     
@@ -242,17 +224,14 @@ struct MenuBarPopoverView: View {
             // Control Buttons
             HStack(spacing: 12) {
                 if timerEngine.isInExtraTime {
-                    // End Extra Time button - FIXED: increased width and better layout
+                    // End Extra Time button
                     Button(action: { timerEngine.endExtraTimeEarly() }) {
-                        HStack(spacing: 6) {
+                        VStack {
                             Image(systemName: "arrow.uturn.backward")
                             Text("Resume Break")
-                                .lineLimit(1)
-                                .fixedSize(horizontal: true, vertical: false)
+                                .font(.caption2)
                         }
-                        .font(.callout)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
+                        .frame(width: 70, height: 50)
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(.orange)
@@ -363,8 +342,10 @@ struct MenuBarPopoverView: View {
         guard let profile = profileStore.currentProfile else { return false }
         guard timerEngine.state != .idle else { return false }
         
+        // During work, always allow skip
         if timerEngine.phase == .work { return true }
         
+        // During break, check strict mode
         return !profile.overlay.strictDefault
     }
 }

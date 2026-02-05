@@ -40,6 +40,11 @@ struct SettingsView: View {
                 .tabItem {
                     Label("Stats", systemImage: "chart.bar")
                 }
+            
+            AboutSettingsTab()
+                .tabItem {
+                    Label("About", systemImage: "info.circle")
+                }
         }
         .frame(width: 580, height: 500)
         .overlay(SettingsWindowConfigurator().frame(width: 0, height: 0))
@@ -326,61 +331,98 @@ struct SoundsSettingsTab: View {
                 }
                 
                 Section("Alarm Duration") {
-                    AlarmDurationRow(
-                        title: "Work warning",
-                        value: Binding(
-                            get: { profile.alarm.workWarningPlayValue },
-                            set: { newValue in profileStore.updateCurrentProfile { $0.alarm.workWarningPlayValue = newValue } }
-                        ),
-                        mode: Binding(
-                            get: { profile.alarm.workWarningPlayMode },
-                            set: { newValue in profileStore.updateCurrentProfile { $0.alarm.workWarningPlayMode = newValue } }
-                        ),
-                        maxValueForSeconds: 30,
-                        maxValueForLoops: 10
-                    )
+                    // Loop mode picker
+                    Picker("Loop Mode", selection: Binding(
+                        get: { profile.alarm.loopMode },
+                        set: { newValue in profileStore.updateCurrentProfile { $0.alarm.loopMode = newValue } }
+                    )) {
+                        Text("Loop for X seconds").tag(AlarmLoopMode.seconds)
+                        Text("Loop X times").tag(AlarmLoopMode.times)
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.bottom, 8)
                     
-                    AlarmDurationRow(
-                        title: "Break warning",
-                        value: Binding(
-                            get: { profile.alarm.breakWarningPlayValue },
-                            set: { newValue in profileStore.updateCurrentProfile { $0.alarm.breakWarningPlayValue = newValue } }
-                        ),
-                        mode: Binding(
-                            get: { profile.alarm.breakWarningPlayMode },
-                            set: { newValue in profileStore.updateCurrentProfile { $0.alarm.breakWarningPlayMode = newValue } }
-                        ),
-                        maxValueForSeconds: 30,
-                        maxValueForLoops: 10
-                    )
+                    if profile.alarm.loopMode == .seconds {
+                        // Seconds-based settings
+                        Stepper(
+                            "Work warning: \(profile.alarm.workWarningPlaySeconds)s",
+                            value: Binding(
+                                get: { profile.alarm.workWarningPlaySeconds },
+                                set: { newValue in profileStore.updateCurrentProfile { $0.alarm.workWarningPlaySeconds = newValue } }
+                            ),
+                            in: 1...60
+                        )
+                        
+                        Stepper(
+                            "Break warning: \(profile.alarm.breakWarningPlaySeconds)s",
+                            value: Binding(
+                                get: { profile.alarm.breakWarningPlaySeconds },
+                                set: { newValue in profileStore.updateCurrentProfile { $0.alarm.breakWarningPlaySeconds = newValue } }
+                            ),
+                            in: 1...60
+                        )
+                        
+                        Stepper(
+                            "Work end (break starts): \(profile.alarm.breakStartPlaySeconds)s",
+                            value: Binding(
+                                get: { profile.alarm.breakStartPlaySeconds },
+                                set: { newValue in profileStore.updateCurrentProfile { $0.alarm.breakStartPlaySeconds = newValue } }
+                            ),
+                            in: 1...120
+                        )
+                        
+                        Stepper(
+                            "Break end: \(profile.alarm.breakEndPlaySeconds)s",
+                            value: Binding(
+                                get: { profile.alarm.breakEndPlaySeconds },
+                                set: { newValue in profileStore.updateCurrentProfile { $0.alarm.breakEndPlaySeconds = newValue } }
+                            ),
+                            in: 1...120
+                        )
+                    } else {
+                        // Loop count settings
+                        Stepper(
+                            "Work warning: \(profile.alarm.workWarningLoopCount)x",
+                            value: Binding(
+                                get: { profile.alarm.workWarningLoopCount },
+                                set: { newValue in profileStore.updateCurrentProfile { $0.alarm.workWarningLoopCount = newValue } }
+                            ),
+                            in: 1...20
+                        )
+                        
+                        Stepper(
+                            "Break warning: \(profile.alarm.breakWarningLoopCount)x",
+                            value: Binding(
+                                get: { profile.alarm.breakWarningLoopCount },
+                                set: { newValue in profileStore.updateCurrentProfile { $0.alarm.breakWarningLoopCount = newValue } }
+                            ),
+                            in: 1...20
+                        )
+                        
+                        Stepper(
+                            "Work end (break starts): \(profile.alarm.breakStartLoopCount)x",
+                            value: Binding(
+                                get: { profile.alarm.breakStartLoopCount },
+                                set: { newValue in profileStore.updateCurrentProfile { $0.alarm.breakStartLoopCount = newValue } }
+                            ),
+                            in: 1...20
+                        )
+                        
+                        Stepper(
+                            "Break end: \(profile.alarm.breakEndLoopCount)x",
+                            value: Binding(
+                                get: { profile.alarm.breakEndLoopCount },
+                                set: { newValue in profileStore.updateCurrentProfile { $0.alarm.breakEndLoopCount = newValue } }
+                            ),
+                            in: 1...20
+                        )
+                    }
                     
-                    AlarmDurationRow(
-                        title: "Work end (break starts)",
-                        value: Binding(
-                            get: { profile.alarm.breakStartPlayValue },
-                            set: { newValue in profileStore.updateCurrentProfile { $0.alarm.breakStartPlayValue = newValue } }
-                        ),
-                        mode: Binding(
-                            get: { profile.alarm.breakStartPlayMode },
-                            set: { newValue in profileStore.updateCurrentProfile { $0.alarm.breakStartPlayMode = newValue } }
-                        ),
-                        maxValueForSeconds: 60,
-                        maxValueForLoops: 15
-                    )
-                    
-                    AlarmDurationRow(
-                        title: "Break end",
-                        value: Binding(
-                            get: { profile.alarm.breakEndPlayValue },
-                            set: { newValue in profileStore.updateCurrentProfile { $0.alarm.breakEndPlayValue = newValue } }
-                        ),
-                        mode: Binding(
-                            get: { profile.alarm.breakEndPlayMode },
-                            set: { newValue in profileStore.updateCurrentProfile { $0.alarm.breakEndPlayMode = newValue } }
-                        ),
-                        maxValueForSeconds: 60,
-                        maxValueForLoops: 15
-                    )
+                    Text(profile.alarm.loopMode == .seconds 
+                         ? "Sound will loop continuously for the specified duration."
+                         : "Sound will play the specified number of times.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
                 
                 Section("Sound Library") {
@@ -456,7 +498,7 @@ struct SoundPickerRow: View {
                 
                 Button(action: {
                     if soundId != "none" {
-                        alarmPlayer.testSound(soundId: soundId, volume: volume)
+                        alarmPlayer.testSound(soundId: soundId, maxDuration: 3, volume: volume)
                     }
                 }) {
                     Image(systemName: "play.circle")
@@ -520,60 +562,6 @@ fileprivate struct VolumeControlRow: View {
     
     private static func clamp(_ v: Double) -> Double {
         max(0.0, min(2.0, v))
-    }
-}
-
-// MARK: - Alarm Duration Row
-
-struct AlarmDurationRow: View {
-    let title: String
-    @Binding var value: Int
-    @Binding var mode: AlarmDurationMode
-    let maxValueForSeconds: Int
-    let maxValueForLoops: Int
-    
-    private var currentMax: Int {
-        mode == .seconds ? maxValueForSeconds : maxValueForLoops
-    }
-    
-    private var valueText: String {
-        switch mode {
-        case .seconds:
-            return "\(value)s"
-        case .loopCount:
-            return value == 1 ? "1 time" : "\(value) times"
-        }
-    }
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(title)
-                Spacer()
-                
-                Picker("", selection: $mode) {
-                    Text("Seconds").tag(AlarmDurationMode.seconds)
-                    Text("Loop count").tag(AlarmDurationMode.loopCount)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 150)
-            }
-            
-            HStack {
-                Stepper(
-                    valueText,
-                    value: $value,
-                    in: 1...currentMax
-                )
-                .onChange(of: mode) { _, _ in
-                    // Clamp value to new max when switching modes
-                    if value > currentMax {
-                        value = currentMax
-                    }
-                }
-            }
-        }
-        .padding(.vertical, 2)
     }
 }
 
@@ -1128,6 +1116,117 @@ struct DurationPicker: View {
             Stepper("", value: $seconds, in: range, step: 1)
                 .labelsHidden()
         }
+    }
+}
+
+// MARK: - About Tab
+
+struct AboutSettingsTab: View {
+    @EnvironmentObject var updateChecker: UpdateChecker
+    
+    var body: some View {
+        Form {
+            Section("Application") {
+                HStack {
+                    Text("Version")
+                    Spacer()
+                    Text(UpdateChecker.currentVersion)
+                        .foregroundColor(.secondary)
+                }
+                
+                HStack {
+                    Text("Build")
+                    Spacer()
+                    Text(UpdateChecker.currentBuild)
+                        .foregroundColor(.secondary)
+                }
+            }
+            
+            Section("Updates") {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Check for Updates")
+                        if updateChecker.updateAvailable, let version = updateChecker.latestVersion {
+                            Text("Version \(version) is available!")
+                                .font(.caption)
+                                .foregroundColor(.green)
+                        } else if let error = updateChecker.errorMessage {
+                            Text(error)
+                                .font(.caption)
+                                .foregroundColor(.red)
+                        }
+                    }
+                    
+                    Spacer()
+                    
+                    if updateChecker.isChecking {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                    } else if updateChecker.isDownloading {
+                        VStack(alignment: .trailing, spacing: 4) {
+                            ProgressView(value: updateChecker.downloadProgress)
+                                .frame(width: 100)
+                            Text("\(Int(updateChecker.downloadProgress * 100))%")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        Button("Cancel") {
+                            updateChecker.cancelDownload()
+                        }
+                        .buttonStyle(.bordered)
+                    } else {
+                        Button("Check Now") {
+                            updateChecker.checkForUpdates(silent: false)
+                        }
+                        .buttonStyle(.bordered)
+                        
+                        if updateChecker.updateAvailable {
+                            Button("Download & Install") {
+                                updateChecker.downloadAndInstall()
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                    }
+                }
+                
+                Text("Updates are automatically checked on app startup.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            
+            Section("Support") {
+                HStack {
+                    Text("Report Issues")
+                    Spacer()
+                    Button("Open GitHub Issues") {
+                        if let url = URL(string: "https://github.com/\(UpdateChecker.repoOwner)/\(UpdateChecker.repoName)/issues") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                    .buttonStyle(.link)
+                }
+                
+                HStack {
+                    Text("Source Code")
+                    Spacer()
+                    Button("View on GitHub") {
+                        if let url = URL(string: "https://github.com/\(UpdateChecker.repoOwner)/\(UpdateChecker.repoName)") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                    .buttonStyle(.link)
+                }
+            }
+            
+            Section("Credits") {
+                Text("AntiDisturb Pomodoro")
+                    .font(.headline)
+                Text("A focus timer that respects your work.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding()
     }
 }
 

@@ -1,298 +1,387 @@
 import Foundation
+import AVFoundation
 import AppKit
 
-/// Handles audio playback for alarms using NSSound (native macOS, no CoreAudio warnings)
+/// Playback configuration for alarm sounds
+struct AlarmPlaybackConfig {
+    /// For .seconds mode: maximum duration to play/loop
+    var maxDuration: TimeInterval = 10
+    /// For .times mode: number of times to loop (1 = play once, 2 = play twice, etc.)
+    var loopCount: Int = 1
+    /// Which mode to use
+    var loopMode: AlarmLoopMode = .seconds
+    /// Volume scalar (0.0 to 2.0, where >1.0 uses gain boosting)
+    var volume: Double = 1.0
+}
+
+/// Handles audio playback for alarms using AVAudioEngine for proper volume control including boost >100%
 class AlarmPlayer: NSObject, ObservableObject {
     
     @Published private(set) var isPlaying = false
+    
     /// UI volume scalar. The settings UI allows 0...2 (0%...200%).
-    /// NSSound's internal volume is 0...1, so we clamp when applying.
+    /// Values > 1.0 are achieved via gain boosting in AVAudioEngine.
     @Published var volume: Double = 1.0 {
         didSet {
-            sound?.volume = Self.nsSoundVolume(from: volume)
+            applyVolume()
         }
     }
     
-    private var sound: NSSound?
+    // MARK: - AVAudioEngine components
+    private var audioEngine: AVAudioEngine?
+    private var playerNode: AVAudioPlayerNode?
+    private var mixerNode: AVAudioMixerNode?
+    
+    // MARK: - Playback state
     private var stopTimer: Timer?
-    private var loopTimer: Timer?
+    private var currentAudioFile: AVAudioFile?
+    private var currentConfig: AlarmPlaybackConfig?
+    private var playStartTime: Date?
+    private var loopsCompleted: Int = 0
     private let soundLibrary: SoundLibrary
     
-    // Store current sound info for looping
-    private var currentSoundURL: URL?
-    private var currentMaxDuration: TimeInterval = 10
-    private var playStartTime: Date?
+    // Track if we're in the middle of stopping to prevent race conditions
+    private var isStopping = false
     
-    // Loop count mode support
-    private var loopMode: AlarmDurationMode = .seconds
-    private var targetLoopCount: Int = 1
-    private var currentLoopCount: Int = 0
-    private var shouldLoop: Bool = true
-    
-    // MARK: - Sound Cache (Memory/CPU optimization)
-    private var soundCache: [URL: NSSound] = [:]
-    private let maxCacheSize = 5
+    // MARK: - Thread safety
+    private let playbackQueue = DispatchQueue(label: "com.antidisturbpomodoro.alarmplayer", qos: .userInteractive)
     
     init(soundLibrary: SoundLibrary) {
         self.soundLibrary = soundLibrary
         super.init()
     }
     
+    deinit {
+        cleanupEngine()
+    }
+    
     // MARK: - Playback Control
     
-    /// Play a sound with duration specified in seconds
-    func play(soundId: String, maxDuration: TimeInterval = 10, volume: Double = 1.0) {
-        playSound(soundId: soundId, value: Int(maxDuration), mode: .seconds, volume: volume, allowLoop: true)
+    /// Play a sound with the given configuration
+    func play(soundId: String, config: AlarmPlaybackConfig) {
+        playbackQueue.async { [weak self] in
+            self?.playInternal(soundId: soundId, config: config)
+        }
     }
     
-    /// Play a sound with duration mode (seconds or loop count)
-    func play(soundId: String, value: Int, mode: AlarmDurationMode, volume: Double = 1.0) {
-        playSound(soundId: soundId, value: value, mode: mode, volume: volume, allowLoop: true)
-    }
-    
-    private func playSound(soundId: String, value: Int, mode: AlarmDurationMode, volume: Double, allowLoop: Bool) {
+    private func playInternal(soundId: String, config: AlarmPlaybackConfig) {
         // Stop any current playback
-        stop()
+        stopInternal()
         
         // Handle "none" sound option
         if soundId == "none" || soundId.isEmpty {
             return
         }
         
-        self.volume = volume
-        self.loopMode = mode
-        self.shouldLoop = allowLoop
-        self.currentLoopCount = 0
-        playStartTime = Date()
-        
-        if mode == .seconds {
-            currentMaxDuration = TimeInterval(value)
-            targetLoopCount = Int.max
-        } else {
-            // Loop count mode
-            targetLoopCount = value
-            currentMaxDuration = TimeInterval.greatestFiniteMagnitude // No time limit
-        }
+        self.volume = config.volume
+        self.currentConfig = config
+        self.playStartTime = Date()
+        self.loopsCompleted = 0
+        self.isStopping = false
         
         // Handle system default sound
         if soundId == "system.default" {
-            playSystemSound(maxDuration: mode == .seconds ? TimeInterval(value) : TimeInterval(value * 2))
+            DispatchQueue.main.async { [weak self] in
+                self?.playSystemSound(config: config)
+            }
             return
         }
         
         // Resolve sound file URL
         guard let fileURL = soundLibrary.resolveFileURL(forId: soundId) else {
             print("Could not resolve sound URL for id: \(soundId)")
-            playSystemSound(maxDuration: mode == .seconds ? TimeInterval(value) : TimeInterval(value * 2))
+            DispatchQueue.main.async { [weak self] in
+                self?.playSystemSound(config: config)
+            }
             return
         }
         
         // Check if file exists
         if !FileManager.default.fileExists(atPath: fileURL.path) {
             print("Sound file does not exist: \(fileURL.path)")
-            playSystemSound(maxDuration: mode == .seconds ? TimeInterval(value) : TimeInterval(value * 2))
+            DispatchQueue.main.async { [weak self] in
+                self?.playSystemSound(config: config)
+            }
             return
         }
         
-        currentSoundURL = fileURL
-        
-        // Try to get from cache or create new sound
-        let nsSound: NSSound
-        if let cached = soundCache[fileURL], let copy = cached.copy() as? NSSound {
-            nsSound = copy
-        } else {
-            guard let newSound = NSSound(contentsOf: fileURL, byReference: true) else {
-                print("Failed to create NSSound from: \(fileURL.path)")
-                playSystemSound(maxDuration: mode == .seconds ? TimeInterval(value) : TimeInterval(value * 2))
-                return
-            }
-            nsSound = newSound
-            
-            // Cache it
-            if soundCache.count >= maxCacheSize {
-                if let firstKey = soundCache.keys.first {
-                    soundCache.removeValue(forKey: firstKey)
-                }
-            }
-            soundCache[fileURL] = NSSound(contentsOf: fileURL, byReference: true)
-        }
-        
-        sound = nsSound
-        sound?.volume = Self.nsSoundVolume(from: volume)
-        sound?.delegate = self
-        sound?.play()
-        isPlaying = true
-        currentLoopCount = 1
-        
-        // Schedule stop after max duration (only for seconds mode)
-        if mode == .seconds {
-            stopTimer = Timer.scheduledTimer(withTimeInterval: currentMaxDuration, repeats: false) { [weak self] _ in
-                self?.stop()
-            }
-        }
+        // Setup and play with AVAudioEngine
+        setupAndPlay(fileURL: fileURL, config: config)
+    }
+    
+    /// Convenience method for seconds-based playback (backward compatibility)
+    func play(soundId: String, maxDuration: TimeInterval = 10, volume: Double = 1.0) {
+        let config = AlarmPlaybackConfig(
+            maxDuration: maxDuration,
+            loopCount: 1,
+            loopMode: .seconds,
+            volume: volume
+        )
+        play(soundId: soundId, config: config)
     }
     
     func stop() {
-        stopTimer?.invalidate()
-        stopTimer = nil
+        playbackQueue.async { [weak self] in
+            self?.stopInternal()
+        }
+    }
+    
+    private func stopInternal() {
+        guard !isStopping else { return }
+        isStopping = true
         
-        loopTimer?.invalidate()
-        loopTimer = nil
+        // Cancel stop timer on main thread
+        DispatchQueue.main.async { [weak self] in
+            self?.stopTimer?.invalidate()
+            self?.stopTimer = nil
+            self?.systemSoundTimer?.invalidate()
+            self?.systemSoundTimer = nil
+        }
         
-        sound?.stop()
-        sound?.delegate = nil
-        sound = nil
+        // Stop audio engine
+        playerNode?.stop()
+        if let engine = audioEngine, engine.isRunning {
+            engine.stop()
+        }
         
-        currentSoundURL = nil
+        cleanupEngine()
+        
+        currentAudioFile = nil
+        currentConfig = nil
         playStartTime = nil
-        currentLoopCount = 0
+        loopsCompleted = 0
+        systemSoundLoopsCompleted = 0
         
-        isPlaying = false
-    }
-    
-    // MARK: - System Sound Fallback
-    
-    private func playSystemSound(maxDuration: TimeInterval) {
-        isPlaying = true
-        
-        NSSound.beep()
-        
-        loopTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { _ in
-            NSSound.beep()
-        }
-        
-        stopTimer = Timer.scheduledTimer(withTimeInterval: maxDuration, repeats: false) { [weak self] _ in
-            self?.stop()
+        DispatchQueue.main.async { [weak self] in
+            self?.isPlaying = false
+            self?.isStopping = false
         }
     }
     
-    // MARK: - Test Playback (No Looping)
-    
-    /// Test a sound - plays once without looping
-    func testSound(soundId: String, volume: Double = 1.0) {
-        // Stop any current playback
-        stop()
-        
-        // Handle "none" sound option
-        if soundId == "none" || soundId.isEmpty {
-            return
-        }
-        
-        self.volume = volume
-        self.shouldLoop = false  // Disable looping for test
-        
-        // Handle system default sound
-        if soundId == "system.default" {
-            isPlaying = true
-            NSSound.beep()
-            // Auto-stop after a short delay
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                self?.isPlaying = false
+    private func cleanupEngine() {
+        if let engine = audioEngine {
+            // Detach nodes to prevent memory leaks
+            if let player = playerNode {
+                engine.detach(player)
             }
-            return
+            if let mixer = mixerNode {
+                engine.detach(mixer)
+            }
         }
-        
-        // Resolve sound file URL
-        guard let fileURL = soundLibrary.resolveFileURL(forId: soundId) else {
-            print("Could not resolve sound URL for id: \(soundId)")
-            NSSound.beep()
-            return
-        }
-        
-        // Check if file exists
-        if !FileManager.default.fileExists(atPath: fileURL.path) {
-            print("Sound file does not exist: \(fileURL.path)")
-            NSSound.beep()
-            return
-        }
-        
-        // Create and play sound once
-        guard let nsSound = NSSound(contentsOf: fileURL, byReference: true) else {
-            print("Failed to create NSSound from: \(fileURL.path)")
-            NSSound.beep()
-            return
-        }
-        
-        sound = nsSound
-        sound?.volume = Self.nsSoundVolume(from: volume)
-        sound?.delegate = self
-        sound?.play()
-        isPlaying = true
+        audioEngine = nil
+        playerNode = nil
+        mixerNode = nil
     }
     
-    // MARK: - Memory Management
+    // MARK: - AVAudioEngine Setup
     
-    func clearCache() {
-        soundCache.removeAll()
+    private func setupAndPlay(fileURL: URL, config: AlarmPlaybackConfig) {
+        do {
+            // Clean up any previous engine
+            cleanupEngine()
+            
+            // Load audio file
+            let audioFile = try AVAudioFile(forReading: fileURL)
+            currentAudioFile = audioFile
+            
+            // Create engine and nodes
+            let engine = AVAudioEngine()
+            let player = AVAudioPlayerNode()
+            let mixer = AVAudioMixerNode()
+            
+            // Attach nodes
+            engine.attach(player)
+            engine.attach(mixer)
+            
+            // Connect: player -> mixer -> mainMixer -> output
+            let format = audioFile.processingFormat
+            engine.connect(player, to: mixer, format: format)
+            engine.connect(mixer, to: engine.mainMixerNode, format: format)
+            
+            // Store references
+            audioEngine = engine
+            playerNode = player
+            mixerNode = mixer
+            
+            // Apply volume (including boost)
+            applyVolume()
+            
+            // Start engine
+            try engine.start()
+            
+            // Schedule initial playback
+            scheduleNextLoop(audioFile: audioFile, player: player)
+            
+            // Start playback
+            player.play()
+            
+            DispatchQueue.main.async { [weak self] in
+                self?.isPlaying = true
+            }
+            
+            // Setup stop conditions based on mode
+            setupStopConditions(config: config)
+            
+        } catch {
+            print("Failed to setup audio engine: \(error)")
+            DispatchQueue.main.async { [weak self] in
+                self?.playSystemSound(config: config)
+            }
+        }
     }
-}
-
-// MARK: - NSSoundDelegate
-
-extension AlarmPlayer: NSSoundDelegate {
     
-    func sound(_ sound: NSSound, didFinishPlaying flag: Bool) {
-        guard flag, isPlaying else {
-            // Sound was stopped or didn't finish normally
-            isPlaying = false
+    private func scheduleNextLoop(audioFile: AVAudioFile, player: AVAudioPlayerNode) {
+        // Reset file position
+        audioFile.framePosition = 0
+        
+        // Schedule the buffer with completion handler
+        player.scheduleFile(audioFile, at: nil) { [weak self] in
+            self?.playbackQueue.async {
+                self?.handlePlaybackCompleted()
+            }
+        }
+    }
+    
+    private func handlePlaybackCompleted() {
+        guard !isStopping else { return }
+        
+        guard let config = currentConfig,
+              let audioFile = currentAudioFile,
+              let player = playerNode,
+              let engine = audioEngine,
+              engine.isRunning else {
             return
         }
         
-        // If looping is disabled (test mode), just stop
-        guard shouldLoop else {
-            isPlaying = false
-            self.sound = nil
-            return
-        }
-        
-        guard let soundURL = currentSoundURL else {
-            isPlaying = false
-            return
-        }
+        loopsCompleted += 1
         
         // Check if we should continue based on mode
         var shouldContinue = false
         
-        if loopMode == .seconds {
-            // Check time remaining
+        switch config.loopMode {
+        case .seconds:
+            // Continue if we haven't exceeded max duration
             if let startTime = playStartTime {
                 let elapsed = Date().timeIntervalSince(startTime)
-                let remaining = currentMaxDuration - elapsed
-                shouldContinue = remaining > 0.5
+                shouldContinue = elapsed < config.maxDuration - 0.1 // Small buffer
             }
-        } else {
-            // Loop count mode - check if we've reached target
-            shouldContinue = currentLoopCount < targetLoopCount
+        case .times:
+            // Continue if we haven't reached the loop count
+            shouldContinue = loopsCompleted < config.loopCount
         }
         
         if shouldContinue {
-            // Small delay before restarting to prevent audio glitches
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-                guard let self = self, self.isPlaying, self.shouldLoop else { return }
+            // Small delay before next loop to prevent audio glitches
+            playbackQueue.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                guard let self = self, !self.isStopping else { return }
                 
-                let newSound: NSSound?
-                if let cached = self.soundCache[soundURL], let copy = cached.copy() as? NSSound {
-                    newSound = copy
-                } else {
-                    newSound = NSSound(contentsOf: soundURL, byReference: true)
+                guard let audioFile = self.currentAudioFile,
+                      let player = self.playerNode,
+                      let engine = self.audioEngine,
+                      engine.isRunning else {
+                    return
                 }
                 
-                if let newSound = newSound {
-                    self.sound = newSound
-                    newSound.volume = Self.nsSoundVolume(from: self.volume)
-                    newSound.delegate = self
-                    newSound.play()
-                    self.currentLoopCount += 1
-                }
+                self.scheduleNextLoop(audioFile: audioFile, player: player)
             }
         } else {
             // Done playing
-            stop()
+            stopInternal()
         }
     }
-
-    private static func nsSoundVolume(from uiVolume: Double) -> Float {
-        let clamped = max(0.0, min(1.0, uiVolume))
-        return Float(clamped)
+    
+    private func setupStopConditions(config: AlarmPlaybackConfig) {
+        // For seconds mode, set up a hard stop timer
+        if config.loopMode == .seconds {
+            DispatchQueue.main.async { [weak self] in
+                self?.stopTimer = Timer.scheduledTimer(withTimeInterval: config.maxDuration, repeats: false) { [weak self] _ in
+                    self?.stop()
+                }
+            }
+        }
+        // For times mode, the completion handler will stop after the last loop
+    }
+    
+    private func applyVolume() {
+        guard let mixer = mixerNode else { return }
+        
+        // Clamp volume to valid range
+        let clampedVolume = max(0.0, min(2.0, volume))
+        
+        // AVAudioMixerNode's outputVolume can exceed 1.0 for gain boosting
+        // The mixer node allows values from 0.0 to a very high number
+        // We use the full range 0-2 directly
+        mixer.outputVolume = Float(clampedVolume)
+    }
+    
+    // MARK: - System Sound Fallback
+    
+    private var systemSoundTimer: Timer?
+    private var systemSoundLoopsCompleted: Int = 0
+    
+    private func playSystemSound(config: AlarmPlaybackConfig) {
+        isPlaying = true
+        systemSoundLoopsCompleted = 0
+        
+        // Play system alert sound immediately
+        NSSound.beep()
+        systemSoundLoopsCompleted = 1
+        
+        switch config.loopMode {
+        case .seconds:
+            // Repeat beep every 1.5 seconds until max duration
+            systemSoundTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
+                NSSound.beep()
+            }
+            
+            // Schedule stop after max duration
+            stopTimer = Timer.scheduledTimer(withTimeInterval: config.maxDuration, repeats: false) { [weak self] _ in
+                self?.stopSystemSound()
+            }
+            
+        case .times:
+            // Play beep loop count times with 1.5 second intervals
+            if config.loopCount > 1 {
+                systemSoundTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] timer in
+                    guard let self = self else {
+                        timer.invalidate()
+                        return
+                    }
+                    
+                    NSSound.beep()
+                    self.systemSoundLoopsCompleted += 1
+                    
+                    if self.systemSoundLoopsCompleted >= config.loopCount {
+                        self.stopSystemSound()
+                    }
+                }
+            } else {
+                // Only one beep needed, already done
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    self?.stopSystemSound()
+                }
+            }
+        }
+    }
+    
+    private func stopSystemSound() {
+        systemSoundTimer?.invalidate()
+        systemSoundTimer = nil
+        stopTimer?.invalidate()
+        stopTimer = nil
+        systemSoundLoopsCompleted = 0
+        isPlaying = false
+    }
+    
+    // MARK: - Test Playback
+    
+    func testSound(soundId: String, maxDuration: TimeInterval = 3, volume: Double = 1.0) {
+        let config = AlarmPlaybackConfig(
+            maxDuration: maxDuration,
+            loopCount: 1,
+            loopMode: .seconds,
+            volume: volume
+        )
+        play(soundId: soundId, config: config)
     }
 }
