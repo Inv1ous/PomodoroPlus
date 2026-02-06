@@ -10,7 +10,7 @@ class UpdateChecker: ObservableObject {
     static let repoOwner = "Inv1ous"  // TODO: Replace with actual GitHub username
     
     /// GitHub repository name
-    static let repoName = "AntiDisturbPomodoro"    // TODO: Replace with actual repo name if different
+    static let repoName = "PomodoroPlus"    // TODO: Replace with actual repo name if different
     
     /// Current app version from Info.plist
     static var currentVersion: String {
@@ -58,7 +58,7 @@ class UpdateChecker: ObservableObject {
         
         var request = URLRequest(url: url)
         request.setValue("application/vnd.github.v3+json", forHTTPHeaderField: "Accept")
-        request.setValue("AntiDisturbPomodoro/\(Self.currentVersion)", forHTTPHeaderField: "User-Agent")
+        request.setValue("PomodoroPlus/\(Self.currentVersion)", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 15
         
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
@@ -245,7 +245,7 @@ class UpdateChecker: ObservableObject {
         // Create temp directory for extraction - use a location that persists after app quits
         // Using /tmp instead of NSTemporaryDirectory to ensure it survives app termination
         let tempBase = URL(fileURLWithPath: "/tmp")
-        let tempDir = tempBase.appendingPathComponent("AntiDisturbPomodoro_Update_\(UUID().uuidString)")
+        let tempDir = tempBase.appendingPathComponent("PomodoroPlus_Update_\(UUID().uuidString)")
         try fileManager.createDirectory(at: tempDir, withIntermediateDirectories: true)
         
         // Log file for debugging
@@ -267,7 +267,7 @@ class UpdateChecker: ObservableObject {
         }
         
         // Find all .app candidates (search recursively)
-        // Structure: AntiDisturbPomodoro-vX.X.X.zip -> AntiDisturbPomodoro-vX.X.X (folder) -> AntiDisturbPomodoro.app
+        // Structure: PomodoroPlus-vX.X.X.zip -> PomodoroPlus-vX.X.X (folder) -> PomodoroPlus.app
         guard let enumerator = fileManager.enumerator(
             at: tempDir,
             includingPropertiesForKeys: [.isDirectoryKey],
@@ -353,7 +353,7 @@ class UpdateChecker: ObservableObject {
         return """
         #!/bin/bash
         
-        # Update script for AntiDisturbPomodoro
+        # Update script for PomodoroPlus
         # Arguments: PARENT_PID NEW_APP DEST_APP WORK_DIR
         
         PARENT_PID="$1"
@@ -684,7 +684,7 @@ class UpdateChecker: ObservableObject {
         }
         
         // Find the most recent update log
-        let updateDirs = contents.filter { $0.lastPathComponent.hasPrefix("AntiDisturbPomodoro_Update_") }
+        let updateDirs = contents.filter { $0.lastPathComponent.hasPrefix("PomodoroPlus_Update_") }
         
         var latestLog: URL?
         var latestDate: Date?
@@ -737,7 +737,7 @@ private class DownloadDelegate: NSObject, URLSessionDownloadDelegate {
         let primaryTempDir = fileManager.temporaryDirectory
         let fallbackTempDir = URL(fileURLWithPath: "/tmp")
         
-        let fileName = "AntiDisturbPomodoro_download_\(UUID().uuidString).zip"
+        let fileName = "PomodoroPlus_download_\(UUID().uuidString).zip"
         let primaryLocation = primaryTempDir.appendingPathComponent(fileName)
         let fallbackLocation = fallbackTempDir.appendingPathComponent(fileName)
         
@@ -813,3 +813,4 @@ private class DownloadDelegate: NSObject, URLSessionDownloadDelegate {
         }
     }
 }
+

@@ -48,7 +48,7 @@ class AlarmPlayer: NSObject, ObservableObject {
     private var isStopping = false
     
     // MARK: - Thread safety
-    private let playbackQueue = DispatchQueue(label: "com.antidisturbpomodoro.alarmplayer", qos: .userInteractive)
+    private let playbackQueue = DispatchQueue(label: "com.PomodoroPlus.alarmplayer", qos: .userInteractive)
     private let playbackQueueKey = DispatchSpecificKey<Void>()
     
     init(soundLibrary: SoundLibrary) {

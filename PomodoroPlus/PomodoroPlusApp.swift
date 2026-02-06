@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 @main
-struct AntiDisturbPomodoroApp: App {
+struct PomodoroPlusApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     
     var body: some Scene {

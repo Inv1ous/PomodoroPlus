@@ -19,7 +19,7 @@ class NotificationScheduler: NSObject, ObservableObject {
     private let maxInvalidatedSessionsToTrack = 10
     
     /// Serial queue to ensure thread-safe operations
-    private let operationQueue = DispatchQueue(label: "com.antidisturbpomodoro.notifications", qos: .userInitiated)
+    private let operationQueue = DispatchQueue(label: "com.PomodoroPlus.notifications", qos: .userInitiated)
     
     override init() {
         super.init()

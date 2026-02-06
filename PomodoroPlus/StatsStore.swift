@@ -13,7 +13,7 @@ class StatsStore: ObservableObject {
     private let decoder = JSONDecoder()
     
     /// Serial queue for stats I/O and aggregation
-    private let workQueue = DispatchQueue(label: "com.antidisturbpomodoro.stats", qos: .utility)
+    private let workQueue = DispatchQueue(label: "com.PomodoroPlus.stats", qos: .utility)
     
     private var allEntries: [StatsEntry] = []
     

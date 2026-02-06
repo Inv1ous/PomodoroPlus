@@ -1,6 +1,6 @@
 # Bundled Sounds
 
-This folder contains the default sound files bundled with AntiDisturbPomodoro.
+This folder contains the default sound files bundled with PomodoroPlus.
 
 ## Required Sound Files
 

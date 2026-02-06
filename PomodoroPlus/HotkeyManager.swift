@@ -98,7 +98,7 @@ class HotkeyManager {
     
     private func registerHotkey(id: UInt32, keyCode: UInt32, modifiers: UInt32) {
         var hotKeyID = EventHotKeyID()
-        hotKeyID.signature = OSType(0x414450) // "ADP" for AntiDisturbPomodoro
+        hotKeyID.signature = OSType(0x414450) // "ADP" for PomodoroPlus
         hotKeyID.id = id
         
         var hotKeyRef: EventHotKeyRef?

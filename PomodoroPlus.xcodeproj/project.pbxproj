@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		001A00001 /* AntiDisturbPomodoroApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 001A00002 /* AntiDisturbPomodoroApp.swift */; };
+		001A00001 /* PomodoroPlusApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 001A00002 /* PomodoroPlusApp.swift */; };
 		001A00003 /* AppHome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 001A00004 /* AppHome.swift */; };
 		001A00005 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 001A00006 /* Models.swift */; };
 		001A00007 /* SoundLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 001A00008 /* SoundLibrary.swift */; };
@@ -28,7 +28,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		001A00002 /* AntiDisturbPomodoroApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AntiDisturbPomodoroApp.swift; sourceTree = "<group>"; };
+		001A00002 /* PomodoroPlusApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PomodoroPlusApp.swift; sourceTree = "<group>"; };
 		001A00004 /* AppHome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppHome.swift; sourceTree = "<group>"; };
 		001A00006 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		001A00008 /* SoundLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundLibrary.swift; sourceTree = "<group>"; };
@@ -44,7 +44,7 @@
 		001A0001C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		001A0001E /* Sounds */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Sounds; sourceTree = "<group>"; };
 		001A0001F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		001A00020 /* AntiDisturbPomodoro.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AntiDisturbPomodoro.entitlements; sourceTree = "<group>"; };
+		001A00020 /* PomodoroPlus.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PomodoroPlus.entitlements; sourceTree = "<group>"; };
 		001A00021 /* AntiDisturbPomodoro.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AntiDisturbPomodoro.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		001A00031 /* UpdateChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateChecker.swift; sourceTree = "<group>"; };
 		9747EEB82F32FA2600FF70F7 /* TightSlider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TightSlider.swift; sourceTree = "<group>"; };
@@ -70,10 +70,10 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		001A00024 /* AntiDisturbPomodoro */ = {
+		001A00024 /* PomodoroPlus */ = {
 			isa = PBXGroup;
 			children = (
-				001A00002 /* AntiDisturbPomodoroApp.swift */,
+				001A00002 /* PomodoroPlusApp.swift */,
 				001A00004 /* AppHome.swift */,
 				001A00006 /* Models.swift */,
 				001A00008 /* SoundLibrary.swift */,
@@ -90,17 +90,17 @@
 				001A0001C /* Assets.xcassets */,
 				001A0001E /* Sounds */,
 				001A0001F /* Info.plist */,
-				001A00020 /* AntiDisturbPomodoro.entitlements */,
+				001A00020 /* PomodoroPlus.entitlements */,
 				97E54B3A2F322F2400F85731 /* SettingsWindowConfigurator.swift */,
 				001A00031 /* UpdateChecker.swift */,
 			);
-			path = AntiDisturbPomodoro;
+			path = PomodoroPlus;
 			sourceTree = "<group>";
 		};
 		001A00025 = {
 			isa = PBXGroup;
 			children = (
-				001A00024 /* AntiDisturbPomodoro */,
+				001A00024 /* PomodoroPlus */,
 				001A00023 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -175,7 +175,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				001A00001 /* AntiDisturbPomodoroApp.swift in Sources */,
+				001A00001 /* PomodoroPlusApp.swift in Sources */,
 				001A00003 /* AppHome.swift in Sources */,
 				9747EEB92F32FA2600FF70F7 /* TightSlider.swift in Sources */,
 				001A00005 /* Models.swift in Sources */,

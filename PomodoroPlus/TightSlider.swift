@@ -1,6 +1,6 @@
 //
 //  TightSlider.swift
-//  AntiDisturbPomodoro
+//  PomodoroPlus
 //
 //  Created by Sora K on 4/2/2026.
 //

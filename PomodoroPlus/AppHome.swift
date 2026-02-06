@@ -4,7 +4,7 @@ import AppKit
 /// Manages the application's home directory structure in ~/Library/Application Support/
 class AppHome: ObservableObject {
     
-    static let appName = "AntiDisturbPomodoro"
+    static let appName = "PomodoroPlus"
     
     // MARK: - Directory URLs
     
