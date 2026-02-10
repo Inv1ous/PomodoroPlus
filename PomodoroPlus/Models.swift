@@ -2,6 +2,76 @@ import Foundation
 
 // MARK: - Sound Models
 
+enum SoundIdCodec {
+    private static let legacyIdMap: [String: String] = [
+        "0": "builtin.chime",
+        "1": "builtin.bell",
+        "2": "builtin.gentle",
+        "3": "builtin.alert",
+        "4": "system.default",
+        "chime": "builtin.chime",
+        "bell": "builtin.bell",
+        "gentle": "builtin.gentle",
+        "alert": "builtin.alert",
+        "default": "system.default",
+        "system": "system.default",
+        "system_default": "system.default",
+        "builtin.default": "system.default"
+    ]
+
+    private static let builtInIds: Set<String> = [
+        "builtin.chime",
+        "builtin.bell",
+        "builtin.gentle",
+        "builtin.alert",
+        "system.default"
+    ]
+
+    static func normalize(_ rawValue: String) -> String {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "none" }
+
+        let lowercased = trimmed.lowercased()
+
+        if lowercased == "none" || lowercased == "off" || lowercased == "-1" {
+            return "none"
+        }
+        if let mapped = legacyIdMap[lowercased] {
+            return mapped
+        }
+        if lowercased.hasPrefix("builtin.") || lowercased == "system.default" {
+            return lowercased
+        }
+
+        return trimmed
+    }
+
+    static func isBuiltInId(_ id: String) -> Bool {
+        builtInIds.contains(normalize(id))
+    }
+
+    static func decodeOptionalStringId<K: CodingKey>(
+        from container: KeyedDecodingContainer<K>,
+        forKey key: K
+    ) -> String? {
+        if let stringValue = try? container.decode(String.self, forKey: key) {
+            return normalize(stringValue)
+        }
+        if let intValue = try? container.decode(Int.self, forKey: key) {
+            return normalize(String(intValue))
+        }
+        return nil
+    }
+
+    static func decodeStringId<K: CodingKey>(
+        from container: KeyedDecodingContainer<K>,
+        forKey key: K,
+        default defaultValue: String
+    ) -> String {
+        decodeOptionalStringId(from: container, forKey: key) ?? normalize(defaultValue)
+    }
+}
+
 struct SoundLibraryData: Codable {
     var version: Int = 1
     var sounds: [SoundEntry]
@@ -17,6 +87,46 @@ struct SoundEntry: Codable, Identifiable, Equatable {
     enum SoundSource: String, Codable {
         case builtIn = "built_in"
         case imported = "imported"
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case format
+        case source
+        case path
+    }
+
+    init(id: String, name: String, format: String, source: SoundSource, path: String) {
+        self.id = SoundIdCodec.normalize(id)
+        self.name = name
+        self.format = format
+        self.source = source
+        self.path = path
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        let decodedPath = try container.decodeIfPresent(String.self, forKey: .path) ?? ""
+        let decodedSource = try container.decodeIfPresent(SoundSource.self, forKey: .source)
+        let inferredImported = decodedPath.hasPrefix("apphome://sounds/imported/")
+
+        id = SoundIdCodec.decodeOptionalStringId(from: container, forKey: .id)
+            ?? (inferredImported ? "import.\(UUID().uuidString.prefix(8))" : "builtin.chime")
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? "Sound"
+        format = (try container.decodeIfPresent(String.self, forKey: .format) ?? "mp3").lowercased()
+        path = decodedPath
+
+        if let decodedSource = decodedSource {
+            source = decodedSource
+        } else {
+            source = inferredImported || id.hasPrefix("import.") ? .imported : .builtIn
+        }
+
+        if SoundIdCodec.isBuiltInId(id) {
+            source = .builtIn
+        }
     }
 }
 
@@ -76,15 +186,15 @@ struct SoundSettings: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
         // End sounds (new keys or defaults)
-        workEndSoundId = try container.decodeIfPresent(String.self, forKey: .workEndSoundId) ?? "builtin.chime"
-        breakEndSoundId = try container.decodeIfPresent(String.self, forKey: .breakEndSoundId) ?? "builtin.chime"
+        workEndSoundId = SoundIdCodec.decodeStringId(from: container, forKey: .workEndSoundId, default: "builtin.chime")
+        breakEndSoundId = SoundIdCodec.decodeStringId(from: container, forKey: .breakEndSoundId, default: "builtin.chime")
 
         // Warning sounds: prefer new keys, migrate from old single key if needed
-        if let ww = try container.decodeIfPresent(String.self, forKey: .workWarningSoundId),
-           let bw = try container.decodeIfPresent(String.self, forKey: .breakWarningSoundId) {
+        if let ww = SoundIdCodec.decodeOptionalStringId(from: container, forKey: .workWarningSoundId),
+           let bw = SoundIdCodec.decodeOptionalStringId(from: container, forKey: .breakWarningSoundId) {
             workWarningSoundId = ww
             breakWarningSoundId = bw
-        } else if let legacy = try container.decodeIfPresent(String.self, forKey: .warningSoundId) {
+        } else if let legacy = SoundIdCodec.decodeOptionalStringId(from: container, forKey: .warningSoundId) {
             workWarningSoundId = legacy
             breakWarningSoundId = legacy
         } else {
@@ -103,10 +213,10 @@ struct SoundSettings: Codable, Equatable {
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(workEndSoundId, forKey: .workEndSoundId)
-        try container.encode(breakEndSoundId, forKey: .breakEndSoundId)
-        try container.encode(workWarningSoundId, forKey: .workWarningSoundId)
-        try container.encode(breakWarningSoundId, forKey: .breakWarningSoundId)
+        try container.encode(SoundIdCodec.normalize(workEndSoundId), forKey: .workEndSoundId)
+        try container.encode(SoundIdCodec.normalize(breakEndSoundId), forKey: .breakEndSoundId)
+        try container.encode(SoundIdCodec.normalize(workWarningSoundId), forKey: .workWarningSoundId)
+        try container.encode(SoundIdCodec.normalize(breakWarningSoundId), forKey: .breakWarningSoundId)
     }
 }
 

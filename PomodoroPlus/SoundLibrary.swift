@@ -9,6 +9,44 @@ class SoundLibrary: ObservableObject {
     private let appHome: AppHome
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
+    private static let supportedAudioFormats: Set<String> = ["mp3", "m4a", "wav"]
+    private static let canonicalBuiltInSounds: [SoundEntry] = [
+        SoundEntry(
+            id: "builtin.chime",
+            name: "Chime",
+            format: "mp3",
+            source: .builtIn,
+            path: "bundle://Sounds/chime.mp3"
+        ),
+        SoundEntry(
+            id: "builtin.bell",
+            name: "Bell",
+            format: "mp3",
+            source: .builtIn,
+            path: "bundle://Sounds/bell.mp3"
+        ),
+        SoundEntry(
+            id: "builtin.gentle",
+            name: "Gentle",
+            format: "mp3",
+            source: .builtIn,
+            path: "bundle://Sounds/gentle.mp3"
+        ),
+        SoundEntry(
+            id: "builtin.alert",
+            name: "Alert",
+            format: "mp3",
+            source: .builtIn,
+            path: "bundle://Sounds/alert.mp3"
+        ),
+        SoundEntry(
+            id: "system.default",
+            name: "System Default",
+            format: "system",
+            source: .builtIn,
+            path: "system://default"
+        )
+    ]
     
     init(appHome: AppHome) {
         self.appHome = appHome
@@ -24,8 +62,10 @@ class SoundLibrary: ObservableObject {
             do {
                 let data = try Data(contentsOf: url)
                 let library = try decoder.decode(SoundLibraryData.self, from: data)
-                DispatchQueue.main.async { [weak self] in
-                    self?.sounds = library.sounds
+                let reconciled = reconcileSounds(library.sounds)
+                sounds = reconciled
+                if reconciled != library.sounds {
+                    save()
                 }
             } catch {
                 print("Failed to load sound library: \(error)")
@@ -49,46 +89,46 @@ class SoundLibrary: ObservableObject {
     // MARK: - Default Library
     
     private func createDefaultLibrary() {
-        DispatchQueue.main.async { [weak self] in
-            self?.sounds = [
-            SoundEntry(
-                id: "builtin.chime",
-                name: "Chime",
-                format: "mp3",
-                source: .builtIn,
-                path: "bundle://Sounds/chime.mp3"
-            ),
-            SoundEntry(
-                id: "builtin.bell",
-                name: "Bell",
-                format: "mp3",
-                source: .builtIn,
-                path: "bundle://Sounds/bell.mp3"
-            ),
-            SoundEntry(
-                id: "builtin.gentle",
-                name: "Gentle",
-                format: "mp3",
-                source: .builtIn,
-                path: "bundle://Sounds/gentle.mp3"
-            ),
-            SoundEntry(
-                id: "builtin.alert",
-                name: "Alert",
-                format: "mp3",
-                source: .builtIn,
-                path: "bundle://Sounds/alert.mp3"
-            ),
-            SoundEntry(
-                id: "system.default",
-                name: "System Default",
-                format: "system",
-                source: .builtIn,
-                path: "system://default"
-            )
-        ]
-        }
+        sounds = Self.canonicalBuiltInSounds
         save()
+    }
+
+    private func reconcileSounds(_ loadedSounds: [SoundEntry]) -> [SoundEntry] {
+        var importedSounds: [SoundEntry] = []
+        var usedImportedIds = Set<String>()
+
+        for var entry in loadedSounds {
+            entry.id = SoundIdCodec.normalize(entry.id)
+
+            let isImported =
+                entry.source == .imported ||
+                entry.id.hasPrefix("import.") ||
+                entry.path.hasPrefix("apphome://sounds/imported/")
+            guard isImported else { continue }
+
+            entry.source = .imported
+
+            if entry.id.isEmpty || entry.id == "none" || SoundIdCodec.isBuiltInId(entry.id) {
+                entry.id = Self.makeUniqueImportedId(existingIds: &usedImportedIds)
+            } else if usedImportedIds.contains(entry.id) {
+                entry.id = Self.makeUniqueImportedId(existingIds: &usedImportedIds)
+            } else {
+                usedImportedIds.insert(entry.id)
+            }
+
+            importedSounds.append(entry)
+        }
+
+        return Self.canonicalBuiltInSounds + importedSounds
+    }
+
+    private static func makeUniqueImportedId(existingIds: inout Set<String>) -> String {
+        var candidate: String
+        repeat {
+            candidate = "import.\(UUID().uuidString.prefix(8))"
+        } while existingIds.contains(candidate)
+        existingIds.insert(candidate)
+        return candidate
     }
     
     // MARK: - Import
@@ -98,15 +138,14 @@ class SoundLibrary: ObservableObject {
         
         // Validate format
         let ext = sourceURL.pathExtension.lowercased()
-        guard ["mp3", "m4a", "wav"].contains(ext) else {
+        guard Self.supportedAudioFormats.contains(ext) else {
             print("Unsupported audio format: \(ext)")
             return nil
         }
         
         // Generate unique filename
         let originalName = sourceURL.deletingPathExtension().lastPathComponent
-        let filename = appHome.generateImportedSoundFilename(originalName: originalName, format: ext)
-        let destURL = appHome.importedSoundsURL.appendingPathComponent(filename)
+        let destURL = nextAvailableImportDestinationURL(originalName: originalName, format: ext)
         
         // Copy file
         do {
@@ -125,19 +164,38 @@ class SoundLibrary: ObservableObject {
         }
         
         // Create entry
-        let id = "import.\(UUID().uuidString.prefix(8))"
+        var usedIds = Set(sounds.map(\.id))
+        let id = Self.makeUniqueImportedId(existingIds: &usedIds)
         let entry = SoundEntry(
             id: id,
             name: originalName,
             format: ext,
             source: .imported,
-            path: "apphome://sounds/imported/\(filename)"
+            path: "apphome://sounds/imported/\(destURL.lastPathComponent)"
         )
         
         sounds.append(entry)
         save()
         
         return entry
+    }
+
+    private func nextAvailableImportDestinationURL(originalName: String, format: String) -> URL {
+        let fm = FileManager.default
+        let initialFilename = appHome.generateImportedSoundFilename(originalName: originalName, format: format)
+        let baseName = (initialFilename as NSString).deletingPathExtension
+
+        var candidateFilename = initialFilename
+        var candidateURL = appHome.importedSoundsURL.appendingPathComponent(candidateFilename)
+        var attempt = 1
+
+        while fm.fileExists(atPath: candidateURL.path) {
+            candidateFilename = "\(baseName)_\(attempt).\(format)"
+            candidateURL = appHome.importedSoundsURL.appendingPathComponent(candidateFilename)
+            attempt += 1
+        }
+
+        return candidateURL
     }
     
     func importSounds(from urls: [URL]) -> [SoundEntry] {
@@ -147,7 +205,8 @@ class SoundLibrary: ObservableObject {
     // MARK: - Remove
     
     func removeSound(id: String) {
-        guard let index = sounds.firstIndex(where: { $0.id == id }) else { return }
+        let normalizedId = SoundIdCodec.normalize(id)
+        guard let index = sounds.firstIndex(where: { $0.id == normalizedId }) else { return }
         let entry = sounds[index]
         
         // Only allow removing imported sounds
@@ -165,7 +224,8 @@ class SoundLibrary: ObservableObject {
     // MARK: - Lookup
     
     func sound(withId id: String) -> SoundEntry? {
-        sounds.first { $0.id == id }
+        let normalizedId = SoundIdCodec.normalize(id)
+        return sounds.first { $0.id == normalizedId }
     }
     
     func resolveFileURL(for entry: SoundEntry) -> URL? {

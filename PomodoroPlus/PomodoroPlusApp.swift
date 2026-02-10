@@ -97,7 +97,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         
-        timerEngine.onExtraTimeEnd = { [weak self] in
+        timerEngine.onExtraTimeEnd = {
             // Extra time ended. Do not show overlay here because onBreakStart will handle it.
             // Calling showOverlay here would cause a second show that resets delayed-skip state.
         }
@@ -110,4 +110,3 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 }
-

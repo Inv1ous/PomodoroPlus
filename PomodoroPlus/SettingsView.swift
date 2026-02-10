@@ -1228,7 +1228,7 @@ struct AboutSettingsTab: View {
             }
             
             Section("Credits") {
-                Text("AntiDisturb Pomodoro")
+                Text("PomodoroPlus")
                     .font(.headline)
                 Text("A focus timer that respects your work.")
                     .font(.caption)

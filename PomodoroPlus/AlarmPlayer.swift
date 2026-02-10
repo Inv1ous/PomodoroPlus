@@ -278,8 +278,6 @@ class AlarmPlayer: NSObject, ObservableObject {
         guard !isStopping else { return }
         
         guard let config = currentConfig,
-              let audioFile = currentAudioFile,
-              let player = playerNode,
               let engine = audioEngine,
               engine.isRunning else {
             return
@@ -366,7 +364,7 @@ class AlarmPlayer: NSObject, ObservableObject {
         switch config.loopMode {
         case .seconds:
             // Repeat beep every 1.5 seconds until max duration
-            systemSoundTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
+            systemSoundTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { _ in
                 NSSound.beep()
             }
             
@@ -423,4 +421,3 @@ class AlarmPlayer: NSObject, ObservableObject {
         play(soundId: soundId, config: config)
     }
 }
-
