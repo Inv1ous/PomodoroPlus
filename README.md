@@ -1,4 +1,4 @@
-# AntiDisturbPomodoro
+# PomodoroPlus
 
 A full-featured macOS Pomodoro timer app designed for personal productivity. Features include a menu bar interface, full-screen break overlays, customizable sounds, multiple profiles, and comprehensive statistics tracking.
 
@@ -24,7 +24,7 @@ macOS 14.0 or later (adjust `MACOSX_DEPLOYMENT_TARGET` in the project for your m
 
 ## Installation
 
-1. Open `AntiDisturbPomodoro.xcodeproj` in Xcode
+1. Open `PomodoroPlus.xcodeproj` in Xcode
 2. Add sound files to the `Sounds` folder (see `Sounds/README.md` for details)
 3. Build and run (Cmd+R)
 4. Grant notification permissions when prompted
@@ -33,8 +33,8 @@ macOS 14.0 or later (adjust `MACOSX_DEPLOYMENT_TARGET` in the project for your m
 ## Project Structure
 
 ```
-AntiDisturbPomodoro/
-├── AntiDisturbPomodoroApp.swift  # App entry point and delegate
+PomodoroPlus/
+├── PomodoroPlusApp.swift  # App entry point and delegate
 ├── AppHome.swift                  # Directory management
 ├── Models.swift                   # Data structures
 ├── SoundLibrary.swift             # Sound file management
@@ -50,15 +50,15 @@ AntiDisturbPomodoro/
 ├── Assets.xcassets/               # App icons and colors
 ├── Sounds/                        # Bundled audio files
 ├── Info.plist                     # App configuration
-└── AntiDisturbPomodoro.entitlements
+└── PomodoroPlus.entitlements
 ```
 
 ## App Home Directory
 
-The app stores all user data in `~/Library/Application Support/AntiDisturbPomodoro/`:
+The app stores all user data in `~/Library/Application Support/PomodoroPlus/`:
 
 ```
-AntiDisturbPomodoro/
+PomodoroPlus/
 ├── profiles/
 │   ├── base_defaults.profile.json
 │   └── default.profile.json
