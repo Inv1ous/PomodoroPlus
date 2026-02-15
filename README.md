@@ -106,7 +106,7 @@ This software is provided for personal use. Modify and distribute as needed for 
 
 ## Troubleshooting
 
-**Hotkeys not working**: Grant Accessibility permissions in System Settings > Privacy & Security > Accessibility. The app will prompt for this on first launch.
+**Hotkeys not working**: Grant Accessibility permissions in System Settings > Privacy & Security > Accessibility. The app prompts on launch when Accessibility permission is missing.
 
 **No sound playing**: Ensure sound files exist in the Sounds folder. Check that the selected sound in Settings is valid. The app falls back to system beep if sounds are missing.
 

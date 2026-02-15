@@ -7,6 +7,7 @@ class HotkeyManager {
     
     private var eventHandlerRef: EventHandlerRef?
     private var hotKeyRefs: [EventHotKeyRef?] = []
+    private var hasRequestedAccessibilityPromptThisLaunch = false
     
     private weak var timerEngine: TimerEngine?
     private weak var alarmPlayer: AlarmPlayer?
@@ -28,9 +29,7 @@ class HotkeyManager {
     // MARK: - Registration
     
     func registerHotkeys() {
-        // Request accessibility permissions if needed
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-        let trusted = AXIsProcessTrustedWithOptions(options)
+        let trusted = ensureAccessibilityTrust()
         
         if !trusted {
             print("Accessibility permissions required for global hotkeys")
@@ -132,6 +131,19 @@ class HotkeyManager {
         }
         
         HotkeyManager.sharedInstance = nil
+    }
+    
+    private func ensureAccessibilityTrust() -> Bool {
+        let trusted = AXIsProcessTrusted()
+        guard !trusted else { return true }
+        
+        if !hasRequestedAccessibilityPromptThisLaunch {
+            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+            _ = AXIsProcessTrustedWithOptions(options)
+            hasRequestedAccessibilityPromptThisLaunch = true
+        }
+        
+        return false
     }
     
     // MARK: - Static Handler
