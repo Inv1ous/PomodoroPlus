@@ -110,9 +110,11 @@ class StatusBarController: NSObject {
         // Update menu bar when timer changes
         // Use Task to properly bridge Combine callbacks to MainActor context
         timerEngine.$remainingSeconds
-            .combineLatest(timerEngine.$state, timerEngine.$phase, timerEngine.$isInExtraTime)
+            // Observe both countdown streams so extra-time seconds also repaint the status item.
+            .combineLatest(timerEngine.$extraTimeRemaining, timerEngine.$state, timerEngine.$phase)
+            .combineLatest(timerEngine.$isInExtraTime)
             .receive(on: RunLoop.main)
-            .sink { [weak self] _, _, _, _ in
+            .sink { [weak self] _, _ in
                 Task { @MainActor in
                     self?.updateMenuBar()
                 }
@@ -382,4 +384,3 @@ struct MenuBarPopoverView: View {
         return !profile.overlay.strictDefault
     }
 }
-

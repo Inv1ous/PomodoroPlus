@@ -233,7 +233,7 @@ struct TimingSettingsTab: View {
                     )
                 }
                 
-                Section("Break Warnings (Short & Long)") {
+                Section("Break Ending Warnings (Short & Long)") {
                     Stepper(
                         "Warning \(profile.notifications.breakWarningSecondsBeforeEnd)s before end",
                         value: Binding(
@@ -282,7 +282,7 @@ struct SoundsSettingsTab: View {
             if let profile = profileStore.currentProfile {
                 Section("Sound Selection") {
                     SoundPickerRow(
-                        title: "Work End",
+                        title: "Work Ended Alarm",
                         soundId: Binding(
                             get: { profile.sounds.workEndSoundId },
                             set: { newValue in profileStore.updateCurrentProfile { $0.sounds.workEndSoundId = newValue } }
@@ -294,7 +294,7 @@ struct SoundsSettingsTab: View {
                     )
 
                     SoundPickerRow(
-                        title: "Break End",
+                        title: "Break Ended Alarm",
                         soundId: Binding(
                             get: { profile.sounds.breakEndSoundId },
                             set: { newValue in profileStore.updateCurrentProfile { $0.sounds.breakEndSoundId = newValue } }
@@ -306,7 +306,7 @@ struct SoundsSettingsTab: View {
                     )
 
                     SoundPickerRow(
-                        title: "Work Warning",
+                        title: "Work Ending Warning",
                         soundId: Binding(
                             get: { profile.sounds.workWarningSoundId },
                             set: { newValue in profileStore.updateCurrentProfile { $0.sounds.workWarningSoundId = newValue } }
@@ -318,7 +318,7 @@ struct SoundsSettingsTab: View {
                     )
 
                     SoundPickerRow(
-                        title: "Break Warning",
+                        title: "Break Ending Warning",
                         soundId: Binding(
                             get: { profile.sounds.breakWarningSoundId },
                             set: { newValue in profileStore.updateCurrentProfile { $0.sounds.breakWarningSoundId = newValue } }
@@ -345,25 +345,7 @@ struct SoundsSettingsTab: View {
                     if profile.alarm.loopMode == .seconds {
                         // Seconds-based settings
                         Stepper(
-                            "Work warning: \(profile.alarm.workWarningPlaySeconds)s",
-                            value: Binding(
-                                get: { profile.alarm.workWarningPlaySeconds },
-                                set: { newValue in profileStore.updateCurrentProfile { $0.alarm.workWarningPlaySeconds = newValue } }
-                            ),
-                            in: 1...60
-                        )
-                        
-                        Stepper(
-                            "Break warning: \(profile.alarm.breakWarningPlaySeconds)s",
-                            value: Binding(
-                                get: { profile.alarm.breakWarningPlaySeconds },
-                                set: { newValue in profileStore.updateCurrentProfile { $0.alarm.breakWarningPlaySeconds = newValue } }
-                            ),
-                            in: 1...60
-                        )
-                        
-                        Stepper(
-                            "Work end (break starts): \(profile.alarm.breakStartPlaySeconds)s",
+                            "Work Ended Alarm: \(profile.alarm.breakStartPlaySeconds)s",
                             value: Binding(
                                 get: { profile.alarm.breakStartPlaySeconds },
                                 set: { newValue in profileStore.updateCurrentProfile { $0.alarm.breakStartPlaySeconds = newValue } }
@@ -372,35 +354,35 @@ struct SoundsSettingsTab: View {
                         )
                         
                         Stepper(
-                            "Break end: \(profile.alarm.breakEndPlaySeconds)s",
+                            "Break Ended Alarm: \(profile.alarm.breakEndPlaySeconds)s",
                             value: Binding(
                                 get: { profile.alarm.breakEndPlaySeconds },
                                 set: { newValue in profileStore.updateCurrentProfile { $0.alarm.breakEndPlaySeconds = newValue } }
                             ),
                             in: 1...120
                         )
+                        
+                        Stepper(
+                            "Work Ending Warning: \(profile.alarm.workWarningPlaySeconds)s",
+                            value: Binding(
+                                get: { profile.alarm.workWarningPlaySeconds },
+                                set: { newValue in profileStore.updateCurrentProfile { $0.alarm.workWarningPlaySeconds = newValue } }
+                            ),
+                            in: 1...60
+                        )
+                        
+                        Stepper(
+                            "Break Ending Warning: \(profile.alarm.breakWarningPlaySeconds)s",
+                            value: Binding(
+                                get: { profile.alarm.breakWarningPlaySeconds },
+                                set: { newValue in profileStore.updateCurrentProfile { $0.alarm.breakWarningPlaySeconds = newValue } }
+                            ),
+                            in: 1...60
+                        )
                     } else {
                         // Loop count settings
                         Stepper(
-                            "Work warning: \(profile.alarm.workWarningLoopCount)x",
-                            value: Binding(
-                                get: { profile.alarm.workWarningLoopCount },
-                                set: { newValue in profileStore.updateCurrentProfile { $0.alarm.workWarningLoopCount = newValue } }
-                            ),
-                            in: 1...20
-                        )
-                        
-                        Stepper(
-                            "Break warning: \(profile.alarm.breakWarningLoopCount)x",
-                            value: Binding(
-                                get: { profile.alarm.breakWarningLoopCount },
-                                set: { newValue in profileStore.updateCurrentProfile { $0.alarm.breakWarningLoopCount = newValue } }
-                            ),
-                            in: 1...20
-                        )
-                        
-                        Stepper(
-                            "Work end (break starts): \(profile.alarm.breakStartLoopCount)x",
+                            "Work Ended Alarm: \(profile.alarm.breakStartLoopCount)x",
                             value: Binding(
                                 get: { profile.alarm.breakStartLoopCount },
                                 set: { newValue in profileStore.updateCurrentProfile { $0.alarm.breakStartLoopCount = newValue } }
@@ -409,10 +391,28 @@ struct SoundsSettingsTab: View {
                         )
                         
                         Stepper(
-                            "Break end: \(profile.alarm.breakEndLoopCount)x",
+                            "Break Ended Alarm: \(profile.alarm.breakEndLoopCount)x",
                             value: Binding(
                                 get: { profile.alarm.breakEndLoopCount },
                                 set: { newValue in profileStore.updateCurrentProfile { $0.alarm.breakEndLoopCount = newValue } }
+                            ),
+                            in: 1...20
+                        )
+                        
+                        Stepper(
+                            "Work Ending Warning: \(profile.alarm.workWarningLoopCount)x",
+                            value: Binding(
+                                get: { profile.alarm.workWarningLoopCount },
+                                set: { newValue in profileStore.updateCurrentProfile { $0.alarm.workWarningLoopCount = newValue } }
+                            ),
+                            in: 1...20
+                        )
+                        
+                        Stepper(
+                            "Break Ending Warning: \(profile.alarm.breakWarningLoopCount)x",
+                            value: Binding(
+                                get: { profile.alarm.breakWarningLoopCount },
+                                set: { newValue in profileStore.updateCurrentProfile { $0.alarm.breakWarningLoopCount = newValue } }
                             ),
                             in: 1...20
                         )
@@ -1241,4 +1241,3 @@ struct AboutSettingsTab: View {
 
 // Preview disabled - requires complex environment object setup
 // To preview, run the app and open Settings
-
