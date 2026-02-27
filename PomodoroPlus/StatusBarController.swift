@@ -151,7 +151,7 @@ class StatusBarController: NSObject {
         // Determine which icon to show based on state
         let iconValue: String
         if timerEngine.isInExtraTime {
-            iconValue = "⏰"  // Special icon for extra time
+            iconValue = iconSettings.extraTimeIcon
         } else {
             switch timerEngine.state {
             case .idle:
@@ -164,7 +164,7 @@ class StatusBarController: NSObject {
         }
         
         // Try to load custom image
-        if iconSettings.useCustomIcons && !timerEngine.isInExtraTime,
+        if iconSettings.useCustomIcons,
            let image = appHome.loadMenuBarIcon(iconValue) {
             button.image = image
             button.imagePosition = showCountdown ? .imageLeft : .imageOnly

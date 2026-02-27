@@ -460,4 +460,3 @@ struct OverlayContentView: View {
         overlayManager.skipEnabled ? .white : .white.opacity(0.5)
     }
 }
-

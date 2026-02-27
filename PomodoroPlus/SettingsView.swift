@@ -690,6 +690,7 @@ struct FeaturesSettingsTab: View {
         case work = "Work"
         case breakTime = "Break"
         case paused = "Paused"
+        case extraTime = "I Need 1 Min"
     }
     
     var body: some View {
@@ -760,6 +761,14 @@ struct FeaturesSettingsTab: View {
                             onImport: { importingForState = .paused; showingIconImporter = true },
                             onClear: { profileStore.updateCurrentProfile { $0.features.menuBarIcons.pausedIcon = "⏸️" } }
                         )
+
+                        IconRow(
+                            label: "I Need 1 Min",
+                            value: profile.features.menuBarIcons.extraTimeIcon,
+                            appHome: appHome,
+                            onImport: { importingForState = .extraTime; showingIconImporter = true },
+                            onClear: { profileStore.updateCurrentProfile { $0.features.menuBarIcons.extraTimeIcon = "⏰" } }
+                        )
                         
                         Text("Icons are set as template images for proper light/dark mode support.")
                             .font(.caption)
@@ -796,6 +805,14 @@ struct FeaturesSettingsTab: View {
                             value: Binding(
                                 get: { profile.features.menuBarIcons.pausedIcon },
                                 set: { newValue in profileStore.updateCurrentProfile { $0.features.menuBarIcons.pausedIcon = newValue } }
+                            )
+                        )
+
+                        EmojiIconRow(
+                            label: "I Need 1 Min",
+                            value: Binding(
+                                get: { profile.features.menuBarIcons.extraTimeIcon },
+                                set: { newValue in profileStore.updateCurrentProfile { $0.features.menuBarIcons.extraTimeIcon = newValue } }
                             )
                         )
                     }
@@ -849,6 +866,8 @@ struct FeaturesSettingsTab: View {
                     profile.features.menuBarIcons.breakIcon = customValue
                 case .paused:
                     profile.features.menuBarIcons.pausedIcon = customValue
+                case .extraTime:
+                    profile.features.menuBarIcons.extraTimeIcon = customValue
                 }
             }
             

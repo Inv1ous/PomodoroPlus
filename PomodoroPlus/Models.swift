@@ -525,6 +525,38 @@ struct MenuBarIconSettings: Codable, Equatable {
     var workIcon: String = "🍅"
     var breakIcon: String = "☕️"
     var pausedIcon: String = "⏸️"
+    var extraTimeIcon: String = "⏰"
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        useCustomIcons = try container.decodeIfPresent(Bool.self, forKey: .useCustomIcons) ?? false
+        idleIcon = try container.decodeIfPresent(String.self, forKey: .idleIcon) ?? "🍅"
+        workIcon = try container.decodeIfPresent(String.self, forKey: .workIcon) ?? "🍅"
+        breakIcon = try container.decodeIfPresent(String.self, forKey: .breakIcon) ?? "☕️"
+        pausedIcon = try container.decodeIfPresent(String.self, forKey: .pausedIcon) ?? "⏸️"
+        extraTimeIcon = try container.decodeIfPresent(String.self, forKey: .extraTimeIcon) ?? "⏰"
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case useCustomIcons
+        case idleIcon
+        case workIcon
+        case breakIcon
+        case pausedIcon
+        case extraTimeIcon
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(useCustomIcons, forKey: .useCustomIcons)
+        try container.encode(idleIcon, forKey: .idleIcon)
+        try container.encode(workIcon, forKey: .workIcon)
+        try container.encode(breakIcon, forKey: .breakIcon)
+        try container.encode(pausedIcon, forKey: .pausedIcon)
+        try container.encode(extraTimeIcon, forKey: .extraTimeIcon)
+    }
 }
 
 struct HotkeySettings: Codable, Equatable {
