@@ -471,6 +471,16 @@ class UpdateChecker: ObservableObject {
     
     private func executeUpdate(scriptPath: URL, appBundle: URL, destinationAppURL: URL, tempDir: URL, logPath: URL, needsAdmin: Bool) {
         let pid = ProcessInfo.processInfo.processIdentifier
+
+        do {
+            try resetAccessibilityPermissionBeforeInstall(logPath: logPath)
+        } catch {
+            let failureMessage = "Failed to reset Accessibility permission before installation. The update has been canceled.\n\n\(error.localizedDescription)"
+            appendToLog(logPath, message: "Accessibility reset preflight failed: \(error.localizedDescription)")
+            errorMessage = failureMessage
+            showAccessibilityResetFailureAlert(failureMessage)
+            return
+        }
         
         if needsAdmin {
             // Use AppleScript to request admin privileges and run the update script
@@ -566,6 +576,75 @@ class UpdateChecker: ObservableObject {
             NSApplication.shared.terminate(nil)
         }
     }
+
+    private func resetAccessibilityPermissionBeforeInstall(logPath: URL) throws {
+        guard let bundleId = Bundle.main.bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !bundleId.isEmpty else {
+            throw NSError(
+                domain: "UpdateChecker",
+                code: 4,
+                userInfo: [NSLocalizedDescriptionKey: "Cannot determine app bundle identifier required for Accessibility reset."]
+            )
+        }
+
+        appendToLog(logPath, message: "Resetting Accessibility permission before install: /usr/bin/tccutil reset Accessibility \(bundleId)")
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+        process.arguments = ["reset", "Accessibility", bundleId]
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        do {
+            try process.run()
+        } catch {
+            appendToLog(logPath, message: "Failed to launch tccutil: \(error.localizedDescription)")
+            throw NSError(
+                domain: "UpdateChecker",
+                code: 5,
+                userInfo: [NSLocalizedDescriptionKey: "Unable to run tccutil to reset Accessibility permission: \(error.localizedDescription)"]
+            )
+        }
+
+        process.waitUntilExit()
+
+        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        let stdout = String(data: stdoutData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let stderr = String(data: stderrData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        if !stdout.isEmpty {
+            appendToLog(logPath, message: "tccutil stdout: \(stdout)")
+        }
+        if !stderr.isEmpty {
+            appendToLog(logPath, message: "tccutil stderr: \(stderr)")
+        }
+
+        appendToLog(logPath, message: "tccutil exit status: \(process.terminationStatus)")
+
+        guard process.terminationStatus == 0 else {
+            var details: [String] = ["tccutil exited with status \(process.terminationStatus)."]
+            if !stdout.isEmpty { details.append("stdout: \(stdout)") }
+            if !stderr.isEmpty { details.append("stderr: \(stderr)") }
+            throw NSError(
+                domain: "UpdateChecker",
+                code: 6,
+                userInfo: [NSLocalizedDescriptionKey: details.joined(separator: " ")]
+            )
+        }
+    }
+
+    private func showAccessibilityResetFailureAlert(_ message: String) {
+        let alert = NSAlert()
+        alert.messageText = "Update Canceled"
+        alert.informativeText = message
+        alert.alertStyle = .critical
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
     
     private func appendToLog(_ logPath: URL, message: String) {
         let logMessage = "[Swift \(Date())] \(message)\n"
@@ -636,7 +715,7 @@ class UpdateChecker: ObservableObject {
     private func showRestartAlert(onConfirm: @escaping () -> Void) {
         let alert = NSAlert()
         alert.messageText = "Ready to Install Update"
-        alert.informativeText = "The app will quit and restart to complete the update. Make sure to save any work before continuing.\n\nYou may be asked for your administrator password."
+        alert.informativeText = "The app will reset its Accessibility permission before installing the update, then quit and restart to complete installation.\n\nAfter relaunch, macOS will ask you to re-enable Accessibility access for global hotkeys.\n\nYou may also be asked for your administrator password to replace the app."
         alert.alertStyle = .informational
         alert.addButton(withTitle: "Restart Now")
         alert.addButton(withTitle: "Cancel")
@@ -813,4 +892,3 @@ private class DownloadDelegate: NSObject, URLSessionDownloadDelegate {
         }
     }
 }
-
